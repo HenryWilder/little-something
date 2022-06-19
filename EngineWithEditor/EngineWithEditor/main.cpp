@@ -98,7 +98,7 @@ namespace UI
 		}
 		~Pane()
 		{
-
+			// Nothing yet
 		}
 
 		void Move(Vector2 delta)
@@ -125,108 +125,119 @@ namespace UI
 				if (gripRect.width < minSize) gripRect.width = minSize;
 			}
 		}
+		void Snap()
+		{
+
+		}
 
 		void Update()
 		{
 			Vector2 cursor = GetMousePosition();
 			HoverRegion hoverState;
-			Rectangle expandedRect = rect;
-			expandedRect.width += edgeSize;
-			expandedRect.height += edgeSize;
 
-			if (beingDragged)
+			// Determine what part is being hovered
 			{
-				hoverState = HoverRegion::handle;
-			}
-			else if (resizingX && resizingY)
-			{
-				hoverState = HoverRegion::corner;
-			}
-			else if (resizingX)
-			{
-				hoverState = HoverRegion::edge_right;
-			}
-			else if (resizingY)
-			{
-				hoverState = HoverRegion::edge_bottom;
-			}
-			else if (CheckCollisionPointRec(cursor, rect))
-			{
-				hoverState = HoverRegion::hovering;
+				Rectangle expandedRect = rect;
+				expandedRect.width += edgeSize;
+				expandedRect.height += edgeSize;
 
-				if (CheckCollisionPointRec(cursor, gripRect))
-				{
+				// Static 'hover' resulting from interaction state
+				if (beingDragged)
 					hoverState = HoverRegion::handle;
-				}
-			}
-			else if (CheckCollisionPointRec(cursor, expandedRect))
-			{
-				if (cursor.x >= rect.x + rect.width - edgeSize && cursor.y >= rect.y + rect.height)
+				else if (resizingX && resizingY)
 					hoverState = HoverRegion::corner;
-				else if (cursor.x >= rect.x + rect.width)
+				else if (resizingX)
 					hoverState = HoverRegion::edge_right;
-				else if (cursor.y >= rect.y + rect.height)
+				else if (resizingY)
 					hoverState = HoverRegion::edge_bottom;
-				else
-					hoverState = HoverRegion::notHovering;
-			}
-			else hoverState = HoverRegion::notHovering;
 
-			if (hoverState != HoverRegion::notHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-			{
-				switch (hoverState)
+				// Check if hovering the main rectangle or the grip
+				else if (CheckCollisionPointRec(cursor, rect))
 				{
-				case UI::Pane::HoverRegion::edge_right:
-					resizingX = true;
-					break;
-				case UI::Pane::HoverRegion::edge_bottom:
-					resizingY = true;
-					break;
-				case UI::Pane::HoverRegion::corner:
-					resizingX = true;
-					resizingY = true;
-					break;
-				case UI::Pane::HoverRegion::handle:
-					beingDragged = true;
-					focused = true;
-					break;
-				case UI::Pane::HoverRegion::hovering:
-					focused = true;
-					break;
-				default:
-					break;
+					hoverState = HoverRegion::hovering;
+					if (CheckCollisionPointRec(cursor, gripRect))
+						hoverState = HoverRegion::handle;
+				}
+
+				// Check if hovering an edge
+				else if (CheckCollisionPointRec(cursor, expandedRect))
+				{
+					if (cursor.x >= rect.x + rect.width - edgeSize && cursor.y >= rect.y + rect.height)
+						hoverState = HoverRegion::corner;
+					else if (cursor.x >= rect.x + rect.width)
+						hoverState = HoverRegion::edge_right;
+					else if (cursor.y >= rect.y + rect.height)
+						hoverState = HoverRegion::edge_bottom;
+					else
+						hoverState = HoverRegion::notHovering;
+				}
+
+				// Hovering nothing
+				else hoverState = HoverRegion::notHovering;
+			}
+
+			// Determine if interaction is happening
+			{
+				// Set states on press
+				if (hoverState != HoverRegion::notHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+				{
+					switch (hoverState)
+					{
+					case UI::Pane::HoverRegion::edge_right:
+						resizingX = true;
+						break;
+					case UI::Pane::HoverRegion::edge_bottom:
+						resizingY = true;
+						break;
+					case UI::Pane::HoverRegion::corner:
+						resizingX = true;
+						resizingY = true;
+						break;
+					case UI::Pane::HoverRegion::handle:
+						beingDragged = true;
+						focused = true;
+						break;
+					case UI::Pane::HoverRegion::hovering:
+						focused = true;
+						break;
+					default:
+						break;
+					}
+				}
+
+				// Reset states on release
+				if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+				{
+					resizingX = false;
+					resizingY = false;
+					beingDragged = false;
+				}
+
+				// Update mouse cursor
+				if (cursorShapeMode == CursorShapeMode::none &&
+					hoverState != HoverRegion::notHovering)
+				{
+					switch (hoverState)
+					{
+					case UI::Pane::HoverRegion::edge_right:
+						cursorShapeMode = CursorShapeMode::resizeRight;
+						break;
+					case UI::Pane::HoverRegion::edge_bottom:
+						cursorShapeMode = CursorShapeMode::resizeDown;
+						break;
+					case UI::Pane::HoverRegion::corner:
+						cursorShapeMode = CursorShapeMode::resizeDiagonal;
+						break;
+					case UI::Pane::HoverRegion::handle:
+						cursorShapeMode = CursorShapeMode::resizeAll;
+						break;
+					default:
+						break;
+					}
 				}
 			}
 
-			if (cursorShapeMode == CursorShapeMode::none &&
-				hoverState != HoverRegion::notHovering)
-			{
-				switch (hoverState)
-				{
-				case UI::Pane::HoverRegion::edge_right:
-					cursorShapeMode = CursorShapeMode::resizeRight;
-					break;
-				case UI::Pane::HoverRegion::edge_bottom:
-					cursorShapeMode = CursorShapeMode::resizeDown;
-					break;
-				case UI::Pane::HoverRegion::corner:
-					cursorShapeMode = CursorShapeMode::resizeDiagonal;
-					break;
-				case UI::Pane::HoverRegion::handle:
-					cursorShapeMode = CursorShapeMode::resizeAll;
-					break;
-				default:
-					break;
-				}
-			}
-
-			if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
-			{
-				resizingX = false;
-				resizingY = false;
-				beingDragged = false;
-			}
-
+			// Update things that occur due to interaction
 			{
 				Vector2 mouseDelta = GetMouseDelta();
 
