@@ -1,3 +1,4 @@
+#include <sal.h>
 #include "containers.h"
 #include <fstream>
 #include <raylib.h>
@@ -10,7 +11,30 @@ void DrawRectangleOutlined(Rectangle rec, Color fillColor, Color linesColor)
 
 namespace Debug
 {
+#if _DEBUG
+	void Log(_In_z_ const char* message) noexcept(noexcept(printf))
+	{
+		printf("Log | %s", message);
+	}
+	void LogWarning(_In_z_ const char* message) noexcept(noexcept(printf))
+	{
+		printf("Warning | %s", message);
+	}
+	void LogError(_In_z_ const char* message) noexcept(noexcept(printf))
+	{
+		printf("Error | %s", message);
+	}
+	void LogAssertion(bool condition, _In_z_ const char* message) noexcept(false)
+	{
+		if (!condition)
+		{
+			printf("Assertion Failed | %s", message);
+			throw std::exception("Failed assertion");
+		}
+	}
+#else
 
+#endif
 }
 
 namespace UI
@@ -30,8 +54,8 @@ namespace UI
 	Shader gripShader;
 	Shader previewShader;
 
-	inline void BeginPreviewMode() { BeginShaderMode(previewShader); }
-	inline void EndPreviewMode() { EndShaderMode(); }
+	inline void BeginPreviewMode() noexcept(noexcept(BeginShaderMode)){ BeginShaderMode(previewShader); }
+	inline void EndPreviewMode() noexcept(noexcept(EndShaderMode)) { EndShaderMode(); }
 
 	// Size of whichever axis of the grip is fixed
 	constexpr float gripFixedSize = 18;
@@ -71,61 +95,38 @@ namespace UI
 
 		static constexpr float snapSize = 7;
 		static constexpr float centerInset = 50;
+
 		Rectangle regions[5];
 
 		SnapRect() = default;
-		SnapRect(Rectangle rect) :
-			regions{
-				{
-					.x		= rect.x,
-					.y		= rect.y,
-					.width	= rect.width,
-					.height = snapSize
-				},
-				{
-					.x		= rect.x + rect.width  - snapSize,
-					.y		= rect.y,
-					.width	= snapSize,
-					.height = rect.height
-				},
-				{
-					.x		= rect.x,
-					.y		= rect.y + rect.height - snapSize,
-					.width	= rect.width,
-					.height = snapSize
-				},
-				{
-					.x		= rect.x,
-					.y		= rect.y,
-					.width	= snapSize,
-					.height = rect.height
-				},
-				{
-					.x		= rect.x      + centerInset,
-					.y		= rect.y      + centerInset,
-					.width	= rect.width  - centerInset * 2,
-					.height = rect.height - centerInset * 2
-				}
-			}
-		{}
+		SnapRect(Rectangle rect) noexcept;
 
-		inline Region IndexToRegion(int index) { return (Region)(index + 1); }
-		inline int IndexFromRegion(Region region) { return (int)region - 1; }
-		const Rectangle& RectFromRegion(Region region)
+		inline Region IndexToRegion(size_t index) noexcept { return (Region)(index + 1); }
+		inline int IndexFromRegion(Region region) noexcept { return (size_t)region - 1; }
+		_Ret_opt_ const Rectangle* RectFromRegion(Region region) noexcept
 		{
 			if (region == Region::floating)
-				return { 0,0,0,0 };
-			return regions[IndexFromRegion(region)];
+				return nullptr;
+			_ASSERT_EXPR(IndexFromRegion(region) < 5, L"Region should not be modified externally");
+			return &regions[IndexFromRegion(region)];
 		}
-		Region CheckCollision(Vector2 point)
+		Region CheckCollision(Vector2 point) noexcept
 		{
 			for (const Rectangle& rect : regions)
 			{
 				if (CheckCollisionPointRec(point, rect))
-					return IndexToRegion(regions - &rect);
+					return IndexToRegion((ptrdiff_t)regions - (ptrdiff_t)&rect);
 			}
 			return Region::floating;
 		}
+	};
+
+	struct PaneInteractArgs
+	{
+		bool focused = false;
+		bool beingDragged = false;
+		bool resizingX = false;
+		bool resizingY = false;
 	};
 
 	// A window that can be moved around on the main window
@@ -133,16 +134,12 @@ namespace UI
 	{
 		// Outset width of edges
 		static constexpr float edgeSize = 5.0f;
-		float minSize = gripFixedSize;
+		inline static float minSize = gripFixedSize;
 
 		const char* name;
 		Rectangle rect;
 		Rectangle gripRect;
 		bool gripIsVertical;
-		bool focused = false;
-		bool beingDragged = false;
-		bool resizingX = false;
-		bool resizingY = false;
 
 		enum class HoverRegion
 		{
@@ -154,7 +151,7 @@ namespace UI
 			handle,
 		};
 
-		Pane(const char* name, bool gripIsVertical)
+		Pane(_In_z_ const char* name, bool gripIsVertical) noexcept
 		{
 			this->name = name;
 			rect = { 0,0,50,50 };
@@ -165,19 +162,19 @@ namespace UI
 			else
 				gripRect.height = gripFixedSize;
 		}
-		~Pane()
+		~Pane() noexcept
 		{
 			// Nothing yet
 		}
 
-		void Move(Vector2 delta)
+		void Move(Vector2 delta) noexcept
 		{
 			rect.x += delta.x;
 			rect.y += delta.y;
 			gripRect.x += delta.x;
 			gripRect.y += delta.y;
 		}
-		void Resize(Vector2 delta)
+		void Resize(Vector2 delta) noexcept
 		{
 			rect.width += delta.x;
 			if (rect.width < minSize) rect.width = minSize;
@@ -305,24 +302,9 @@ namespace UI
 					}
 				}
 			}
-
-			// Update things that occur due to interaction
-			{
-				Vector2 mouseDelta = GetMouseDelta();
-
-				{
-					Vector2 resizeDelta = mouseDelta;
-					if (!resizingX) resizeDelta.x = 0;
-					if (!resizingY) resizeDelta.y = 0;
-					Resize(resizeDelta);
-				}
-
-				if (beingDragged) Move(mouseDelta);
-			}
 		}
 		void Draw() const
 		{
-			if (beingDragged) BeginPreviewMode();
 			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
 			Rectangle gripDrawRect = gripRect;
 			if (gripIsVertical)
@@ -334,16 +316,93 @@ namespace UI
 			}
 			else
 			{
-				if (focused) DrawRectangleRec(gripRect, Theme::color_highlight);
 				float nameWidth = (float)(MeasureText(name, Theme::fontSize) + 4);
 				gripDrawRect.x += nameWidth;
 				gripDrawRect.width -= nameWidth;
-				DrawGrip(gripDrawRect, focused ? Theme::color_foreground : Theme::color_accent);
+				DrawGrip(gripDrawRect, Theme::color_accent);
 			}
-			DrawText(name, rect.x + 4, rect.y + 4, Theme::fontSize, Theme::color_foreground);
-			if (beingDragged) EndPreviewMode();
+			DrawText(name, (int)rect.x + 4, (int)rect.y + 4, Theme::fontSize, Theme::color_foreground);
+		}
+		void UpdateFocused(PaneInteractArgs args)
+		{
+			// Update things that occur due to interaction
+			{
+				Vector2 mouseDelta = GetMouseDelta();
+
+				{
+					Vector2 resizeDelta = mouseDelta;
+					if (!args.resizingX) resizeDelta.x = 0;
+					if (!args.resizingY) resizeDelta.y = 0;
+					Resize(resizeDelta);
+				}
+
+				if (args.beingDragged) Move(mouseDelta);
+			}
+		}
+		// Assume focused is always true
+		void DrawFocused(PaneInteractArgs args)
+		{
+			if (args.beingDragged) BeginPreviewMode();
+			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
+			Rectangle gripDrawRect = gripRect;
+			if (gripIsVertical)
+			{
+				float nameHeight = (float)(Theme::fontSize + 4);
+				gripDrawRect.y += nameHeight;
+				gripDrawRect.height -= nameHeight;
+				DrawGrip(gripDrawRect, Theme::color_accent);
+			}
+			else
+			{
+				if (args.focused) DrawRectangleRec(gripRect, Theme::color_highlight);
+				float nameWidth = (float)(MeasureText(name, Theme::fontSize) + 4);
+				gripDrawRect.x += nameWidth;
+				gripDrawRect.width -= nameWidth;
+				DrawGrip(gripDrawRect, Theme::color_foreground);
+			}
+			DrawText(name, (int)rect.x + 4, (int)rect.y + 4, Theme::fontSize, Theme::color_foreground);
+			if (args.beingDragged) EndPreviewMode();
 		}
 	};
+
+	SnapRect::SnapRect(Rectangle rect) noexcept :
+		regions{
+			{
+				.x		= rect.x,
+				.y		= rect.y,
+				.width	= rect.width,
+				.height = snapSize
+			},
+			{
+				.x		= rect.x + rect.width  - snapSize,
+				.y		= rect.y,
+				.width	= snapSize,
+				.height = rect.height
+			},
+			{
+				.x		= rect.x,
+				.y		= rect.y + rect.height - snapSize,
+				.width	= rect.width,
+				.height = snapSize
+			},
+			{
+				.x		= rect.x,
+				.y		= rect.y,
+				.width	= snapSize,
+				.height = rect.height
+			},
+			{
+				.x		= rect.x      + centerInset,
+				.y		= rect.y      + centerInset,
+				.width	= rect.width  - centerInset * 2,
+				.height = rect.height - centerInset * 2
+			}
+		}
+	{
+		float minSizeForCenter = centerInset * 2 + Pane::minSize;
+		if (rect.width < minSizeForCenter || rect.height < minSizeForCenter)
+			regions[4] = { 0,0,0,0 };
+	}
 }
 
 int main()
@@ -445,12 +504,20 @@ int main()
 					continue;
 				pane->Draw();
 			}
-			if (snapRegion != UI::SnapRect::Region::floating)
-			{
-				DrawRectangleRec(snapRect.RectFromRegion(snapRegion), UI::Theme::color_highlight);
-			}
+			if (const Rectangle* rec = snapRect.RectFromRegion(snapRegion); !!rec)
+				DrawRectangleRec(*rec, UI::Theme::color_highlight);
 			if (!!focusedPane)
 				focusedPane->Draw();
+#if true
+			for (const UI::Pane* pane : panes)
+			{
+				UI::SnapRect snapper = UI::SnapRect(pane->rect);
+				for (const Rectangle rec : snapper.regions)
+				{
+					DrawRectangleLinesEx(rec, 1.0f, UI::Theme::color_highlight);
+				}
+			}
+#endif
 		}
 		EndDrawing();
 	}

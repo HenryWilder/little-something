@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sal.h>
+#include <algorithm>
 #include <array>
 #include <vector>
 #include <deque>
@@ -30,8 +32,8 @@ namespace hw
 
 			Block() = default;
 			Block(void* start, size_t size) : inUse(false), start((byte*)start), size(size) {}
-			void Invalidate() { start = nullptr; size = 0; }
-			bool IsValid() const { return !!start; }
+			void Invalidate() noexcept { start = nullptr; size = 0; }
+			bool IsValid() const noexcept { return !!start; }
 		};
 
 		static constexpr size_t _ControllerCapacity = 128;
@@ -41,28 +43,28 @@ namespace hw
 		Block* controller = new Block[_ControllerCapacity];
 		byte* memory = new byte[_MemoryCapacity];
 
-		inline size_t BlockMemoryIndex(size_t blockIndex) const noexcept
+		inline size_t BlockMemoryIndex(size_t blockIndex) const noexcept(false)
 		{
-			return controller[blockIndex].start - memory;
+			return static_cast<size_t>(controller[blockIndex].start - memory);
 		}
-		inline size_t RemainingSpace(size_t blockIndex) const noexcept
+		inline size_t RemainingSpace(size_t blockIndex) const noexcept(false)
 		{
 			return _MemoryCapacity - BlockMemoryIndex(blockIndex);
 		}
-		inline bool IsValidBlock(size_t blockIndex) const
+		inline bool IsValidBlock(size_t blockIndex) const noexcept
 		{
 			return blockIndex < validBlocks;
 		}
-		inline size_t LastBlockIndex() const
+		inline size_t LastBlockIndex() const noexcept
 		{
-			return validBlocks - 1;
+			return validBlocks - 1u;
 		}
-		inline bool IsLastBlock(size_t blockIndex) const
+		inline bool IsLastBlock(size_t blockIndex) const noexcept
 		{
 			return blockIndex == LastBlockIndex();
 		}
 
-		inline void ShiftBlocksForwardOne(size_t blockIndex) noexcept
+		inline void ShiftBlocksForwardOne(size_t blockIndex)
 		{
 			_ASSERT_EXPR(blockIndex + 1 < _ControllerCapacity, L"Insufficient capacity for memory block shift");
 			Block* block = controller + blockIndex;
@@ -72,7 +74,7 @@ namespace hw
 				++validBlocks;
 		}
 
-		inline void _SubdivideBlock(size_t blockIndex, size_t size) noexcept
+		inline void _SubdivideBlock(size_t blockIndex, size_t size)
 		{
 			Block& block = controller[blockIndex];
 			Block& nextBlock = controller[blockIndex + 1];
@@ -127,7 +129,7 @@ namespace hw
 			validBlocks = newValidCount;
 		}
 		
-		Block* FindFreeBlock(size_t size)
+		_Ret_opt_ Block* FindFreeBlock(size_t size) noexcept
 		{
 			for (size_t i = 0; IsValidBlock(i); ++i)
 			{
@@ -139,8 +141,9 @@ namespace hw
 			}
 			return nullptr;
 		}
-		Block* FindBlockByStart(void* start)
+		_Ret_opt_ Block* FindBlockByStart(_In_ void* start) noexcept
 		{
+			if (!start) return nullptr;
 			for (size_t i = 0; IsValidBlock(i); ++i)
 			{
 				if (controller[i].start == start)
@@ -149,7 +152,7 @@ namespace hw
 			return nullptr;
 		}
 
-		Memory()
+		Memory() noexcept
 		{
 			controller[0] = Block(memory, _MemoryCapacity);
 			validBlocks = 1;
@@ -161,52 +164,53 @@ namespace hw
 			delete[] controller;
 			delete[] memory;
 		}
-		static Memory& GetSingleton()
+		static _Ret_ Memory& GetSingleton() noexcept
 		{
-			static Memory* m = new Memory();
-			return *m;
+			static Memory m = Memory();
+			return m;
 		}
 
-		__declspec(allocator) void* Allocate(const size_t _Count)
+		// It is safe to free freed memory
+		void Deallocate(_In_ void* const _Ptr, const size_t _Count)
+		{
+			Block* block = FindBlockByStart(_Ptr);
+			if (!block) return _ASSERT_EXPR(false, L"tried to deallocate definitely unowned block");
+			_ASSERT_EXPR(block->size == _Count, L"tried to deallocate potentially unowned block");
+			block->inUse = false;
+			Defrag();
+		}
+		__declspec(allocator) _Ret_ void* Allocate(const size_t _Count) noexcept(false)
 		{
 			Block* block = FindFreeBlock(_Count);
 			if (!block) throw std::bad_alloc();
 			block->inUse = true;
 			return block->start;
 		}
-		// It is safe to free freed memory
-		void Deallocate(void* const _Ptr, const size_t _Count)
-		{
-			Block* block = FindBlockByStart(_Ptr);
-			_ASSERT_EXPR(block->size == _Count, L"tried to deallocate potentially unowned block");
-			block->inUse = false;
-			Defrag();
-		}
 	};
 
-	void _Dealloc(void* const _Ptr, const size_t _Count)
+	void _Dealloc(_In_ void* const _Ptr, const size_t _Count)
 	{
 		Memory::GetSingleton().Deallocate(_Ptr, _Count);
 	}
-	__declspec(allocator) void* _Alloc(const size_t _Count)
+	__declspec(allocator) _Ret_ void* _Alloc(const size_t _Count) noexcept(false)
 	{
 		return Memory::GetSingleton().Allocate(_Count);
 	}
 
 	template<typename _Ty>
-	void Dealloc(_Ty* const _Ptr, const size_t _Count = 1)
+	void Dealloc(_In_ _Ty* const _Ptr, const size_t _Count = 1)
 	{
 		_Dealloc(_Ptr, _Count * sizeof(_Ty));
 	}
 
 	template<typename _Ty>
-	_Ty* Alloc(const size_t _Count = 1)
+	_Ret_ _Ty* Alloc(const size_t _Count = 1) noexcept(false)
 	{
 		return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty)));
 	}
 
 	template<typename _Ty, typename... _Args>
-	_Ty* New(_Args&&... _Val)
+	_Ret_ _Ty* New(_In_ _Args&&... _Val) noexcept(false)
 	{
 		_Ty* ptr = static_cast<_Ty*>(_Alloc(sizeof(_Ty)));
 		*ptr = _Ty(std::forward<_Args>(_Val)...);
@@ -229,18 +233,18 @@ namespace hw
 		using propagate_on_container_move_assignment = std::true_type;
 
 		constexpr Allocator() noexcept {}
-		constexpr Allocator(const Allocator&) noexcept = default;
+		constexpr Allocator(const Allocator&) = default;
 		template <class _Other>
-		constexpr Allocator(const Allocator<_Other>&) noexcept {}
+		constexpr Allocator(const Allocator<_Other>&) {}
 		constexpr ~Allocator() = default;
 		constexpr Allocator& operator=(const Allocator&) = default;
 
-		void deallocate(_Ty* const _Ptr, const size_t _Count)
+		void deallocate(_In_ _Ty* const _Ptr, const size_t _Count)
 		{
 			Dealloc(_Ptr, _Count);
 		}
 
-		_Ty* allocate(const size_t _Count)
+		_Ret_ _Ty* allocate(const size_t _Count) noexcept(false)
 		{
 			return Alloc<_Ty>(_Count);
 		}
