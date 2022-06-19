@@ -8,6 +8,11 @@ void DrawRectangleOutlined(Rectangle rec, Color fillColor, Color linesColor)
 	DrawRectangleLinesEx(rec, 1.0f, linesColor);
 }
 
+namespace Debug
+{
+
+}
+
 namespace UI
 {
 	namespace Theme
@@ -58,6 +63,70 @@ namespace UI
 		DrawTexturePro(uiTexture, { 0,0,1,1 }, rect, { 0,0 }, 0.0f, color);
 		EndShaderMode();
 	}
+
+	// A helper for checking where a potential snap is to be connected
+	struct SnapRect
+	{
+		enum class Region { floating = 0, top, right, bottom, left, center, };
+
+		static constexpr float snapSize = 7;
+		static constexpr float centerInset = 50;
+		Rectangle regions[5];
+
+		SnapRect() = default;
+		SnapRect(Rectangle rect) :
+			regions{
+				{
+					.x		= rect.x,
+					.y		= rect.y,
+					.width	= rect.width,
+					.height = snapSize
+				},
+				{
+					.x		= rect.x + rect.width  - snapSize,
+					.y		= rect.y,
+					.width	= snapSize,
+					.height = rect.height
+				},
+				{
+					.x		= rect.x,
+					.y		= rect.y + rect.height - snapSize,
+					.width	= rect.width,
+					.height = snapSize
+				},
+				{
+					.x		= rect.x,
+					.y		= rect.y,
+					.width	= snapSize,
+					.height = rect.height
+				},
+				{
+					.x		= rect.x      + centerInset,
+					.y		= rect.y      + centerInset,
+					.width	= rect.width  - centerInset * 2,
+					.height = rect.height - centerInset * 2
+				}
+			}
+		{}
+
+		inline Region IndexToRegion(int index) { return (Region)(index + 1); }
+		inline int IndexFromRegion(Region region) { return (int)region - 1; }
+		const Rectangle& RectFromRegion(Region region)
+		{
+			if (region == Region::floating)
+				return { 0,0,0,0 };
+			return regions[IndexFromRegion(region)];
+		}
+		Region CheckCollision(Vector2 point)
+		{
+			for (const Rectangle& rect : regions)
+			{
+				if (CheckCollisionPointRec(point, rect))
+					return IndexToRegion(regions - &rect);
+			}
+			return Region::floating;
+		}
+	};
 
 	// A window that can be moved around on the main window
 	struct Pane
@@ -183,21 +252,21 @@ namespace UI
 				{
 					switch (hoverState)
 					{
-					case UI::Pane::HoverRegion::edge_right:
+					case HoverRegion::edge_right:
 						resizingX = true;
 						break;
-					case UI::Pane::HoverRegion::edge_bottom:
+					case HoverRegion::edge_bottom:
 						resizingY = true;
 						break;
-					case UI::Pane::HoverRegion::corner:
+					case HoverRegion::corner:
 						resizingX = true;
 						resizingY = true;
 						break;
-					case UI::Pane::HoverRegion::handle:
+					case HoverRegion::handle:
 						beingDragged = true;
 						focused = true;
 						break;
-					case UI::Pane::HoverRegion::hovering:
+					case HoverRegion::hovering:
 						focused = true;
 						break;
 					default:
@@ -219,16 +288,16 @@ namespace UI
 				{
 					switch (hoverState)
 					{
-					case UI::Pane::HoverRegion::edge_right:
+					case HoverRegion::edge_right:
 						cursorShapeMode = CursorShapeMode::resizeRight;
 						break;
-					case UI::Pane::HoverRegion::edge_bottom:
+					case HoverRegion::edge_bottom:
 						cursorShapeMode = CursorShapeMode::resizeDown;
 						break;
-					case UI::Pane::HoverRegion::corner:
+					case HoverRegion::corner:
 						cursorShapeMode = CursorShapeMode::resizeDiagonal;
 						break;
-					case UI::Pane::HoverRegion::handle:
+					case HoverRegion::handle:
 						cursorShapeMode = CursorShapeMode::resizeAll;
 						break;
 					default:
@@ -292,24 +361,31 @@ int main()
 	UI::gripShader = LoadShader(0, "grip.frag");
 	UI::gripShaderSizeLoc = GetShaderLocation(UI::gripShader, "size");
 
-	hw::Alloc<UI::Pane*>();
 	hw::vector<UI::Pane*> panes;
-	panes.reserve(32);
+	panes.reserve(8);
 	panes.push_back(hw::New<UI::Pane>("Test1", false));
 	panes.push_back(hw::New<UI::Pane>("Test2", true));
 	panes.back()->Move({50,0});
 
 	UI::Pane* lastFrameFocusedPane = nullptr;
 
+	UI::SnapRect snapRect;
+	UI::SnapRect::Region snapRegion;
+
 	while (!WindowShouldClose())
 	{
 		UI::Pane* focusedPane = nullptr;
+		snapRegion = UI::SnapRect::Region::floating;
+
+		// Update panes
 		for (UI::Pane* pane : panes)
 		{
 			pane->Update();
 			if (pane->focused && pane != lastFrameFocusedPane)
 				focusedPane = pane;
 		}
+
+		// Update focus
 		if (!!focusedPane && lastFrameFocusedPane != focusedPane)
 		{
 			auto it = std::find(panes.begin(), panes.end(), focusedPane);
@@ -321,6 +397,23 @@ int main()
 		}
 		lastFrameFocusedPane = focusedPane;
 
+		// Check for snap prospects
+		if (!!focusedPane && focusedPane->beingDragged)
+		{
+			Vector2 cursor = GetMousePosition();
+			for (UI::Pane* pane : panes)
+			{
+				if (pane == focusedPane) [[unlikely]] continue; // Exactly one
+				if (CheckCollisionPointRec(cursor, pane->rect)) [[unlikely]] // Only one, if any
+				{
+					snapRect = UI::SnapRect(pane->rect);
+					snapRegion = snapRect.CheckCollision(cursor);
+					break;
+				}
+			}
+		}
+
+		// Update mouse cursor
 		switch (UI::cursorShapeMode)
 		{
 		default:
@@ -341,14 +434,23 @@ int main()
 		}
 		UI::cursorShapeMode = UI::CursorShapeMode::none;
 
+		// Draw
 		BeginDrawing();
 		{
 			ClearBackground(UI::Theme::color_main);
 
 			for (const UI::Pane* pane : panes)
 			{
+				if (pane == focusedPane) [[unlikely]] // Only one, if any
+					continue;
 				pane->Draw();
 			}
+			if (snapRegion != UI::SnapRect::Region::floating)
+			{
+				DrawRectangleRec(snapRect.RectFromRegion(snapRegion), UI::Theme::color_highlight);
+			}
+			if (!!focusedPane)
+				focusedPane->Draw();
 		}
 		EndDrawing();
 	}

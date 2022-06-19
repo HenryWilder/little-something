@@ -34,8 +34,8 @@ namespace hw
 			bool IsValid() const { return !!start; }
 		};
 
-		static constexpr size_t _ControllerCapacity = MEGABYTE;
-		static constexpr size_t _MemoryCapacity = GIGABYTE + MEGABYTE;
+		static constexpr size_t _ControllerCapacity = 128;
+		static constexpr size_t _MemoryCapacity = 1024;
 
 		size_t validBlocks = 0;
 		Block* controller = new Block[_ControllerCapacity];
