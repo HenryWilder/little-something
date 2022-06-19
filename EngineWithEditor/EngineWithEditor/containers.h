@@ -34,8 +34,8 @@ namespace hw
 			bool IsValid() const { return !!start; }
 		};
 
-		static constexpr size_t _ControllerCapacity = 2u * KILOBYTE;
-		static constexpr size_t _MemoryCapacity = 2u * GIGABYTE;
+		static constexpr size_t _ControllerCapacity = KILOBYTE;
+		static constexpr size_t _MemoryCapacity = MEGABYTE;
 
 		size_t validBlocks = 0;
 		Block controller[_ControllerCapacity];
@@ -136,7 +136,10 @@ namespace hw
 			for (size_t i = 0; IsValidBlock(i); ++i)
 			{
 				if (!controller[i].inUse && controller[i].size >= size)
+				{
+					Fragment(i, size);
 					return controller + i;
+				}
 			}
 			return nullptr;
 		}
@@ -159,8 +162,8 @@ namespace hw
 	public:
 		static Memory& GetSingleton()
 		{
-			static Memory m;
-			return m;
+			static Memory* m = new Memory();
+			return *m;
 		}
 
 		__declspec(allocator) void* Allocate(const size_t _Count)
@@ -174,7 +177,7 @@ namespace hw
 		void Deallocate(void* const _Ptr, const size_t _Count)
 		{
 			Block* block = FindBlockByStart(_Ptr);
-			_ASSERT_EXPR(block->size != _Count, L"tried to deallocate potentially unowned block");
+			_ASSERT_EXPR(block->size == _Count, L"tried to deallocate potentially unowned block");
 			block->inUse = false;
 			Defrag();
 		}
@@ -216,9 +219,9 @@ namespace hw
 			_Dealloc(_Ptr, _Count * sizeof(_Ty));
 		}
 
-		__declspec(allocator) _Ty* allocate(const size_t _Count)
+		_Ty* allocate(const size_t _Count)
 		{
-			return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty));
+			return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty)));
 		}
 	};
 

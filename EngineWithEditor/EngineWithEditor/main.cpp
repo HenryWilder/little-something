@@ -30,7 +30,8 @@ int main()
 	InitWindow(1280, 720, "Henry's Editor");
 	SetTargetFPS(60);
 
-	vector<Pane> panes;
+	hw::vector<int> test;
+	test.reserve(32);
 
 	while (!WindowShouldClose())
 	{
