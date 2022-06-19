@@ -2,17 +2,22 @@
 #include <fstream>
 #include <raylib.h>
 
+struct GUIElement
+{
+
+};
+
 // A window that can be moved around on the main window
 struct Pane
 {
-	Pane(int width, int height, const char* name)
+	hw::vector<GUIElement> elements;
+	Pane()
 	{
-		InitWindow(width, height, name);
-
+		elements.reserve(256);
 	}
 	~Pane()
 	{
-		CloseWindow();
+
 	}
 	void Update()
 	{
@@ -30,8 +35,9 @@ int main()
 	InitWindow(1280, 720, "Henry's Editor");
 	SetTargetFPS(60);
 
-	hw::vector<int> test;
+	hw::vector<Pane> test;
 	test.reserve(32);
+	test.push_back(Pane());
 
 	while (!WindowShouldClose())
 	{

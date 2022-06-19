@@ -34,12 +34,12 @@ namespace hw
 			bool IsValid() const { return !!start; }
 		};
 
-		static constexpr size_t _ControllerCapacity = KILOBYTE;
-		static constexpr size_t _MemoryCapacity = MEGABYTE;
+		static constexpr size_t _ControllerCapacity = MEGABYTE;
+		static constexpr size_t _MemoryCapacity = GIGABYTE + MEGABYTE;
 
 		size_t validBlocks = 0;
-		Block controller[_ControllerCapacity];
-		byte memory[_MemoryCapacity];
+		Block* controller = new Block[_ControllerCapacity];
+		byte* memory = new byte[_MemoryCapacity];
 
 		inline size_t BlockMemoryIndex(size_t blockIndex) const noexcept
 		{
@@ -86,13 +86,9 @@ namespace hw
 		// Doesn't work if there are no remaining spaces in the controller
 		void Fragment(size_t blockIndex, size_t size)
 		{
-			if (size == controller[blockIndex].size) return;
-			if (size > controller[blockIndex].size)
-				return _ASSERT_EXPR(false, L"Cannot fragment into larger size");
-
-			size_t nextBlockIndex = blockIndex + 1;
-			if (nextBlockIndex >= _ControllerCapacity)
-				return _ASSERT_EXPR(false, L"Insufficient space to subdivide");
+			if (size == controller[blockIndex].size) return; // Don't need to subdivide; already enough
+			if (size > controller[blockIndex].size) return _ASSERT_EXPR(false, L"Cannot fragment into larger size");
+			if (blockIndex + 1 >= _ControllerCapacity) return _ASSERT_EXPR(false, L"Insufficient space to subdivide");
 
 			ShiftBlocksForwardOne(blockIndex);
 			_SubdivideBlock(blockIndex, size);
@@ -127,7 +123,7 @@ namespace hw
 				startIndex = endIndex;
 			}
 			if (!anyChanges) return;
-			std::stable_partition(std::begin(controller), std::end(controller), [](const Block& b) { return b.IsValid(); });
+			std::stable_partition(controller, controller + _ControllerCapacity, [](const Block& b) { return b.IsValid(); });
 			validBlocks = newValidCount;
 		}
 		
@@ -160,6 +156,11 @@ namespace hw
 		}
 
 	public:
+		~Memory()
+		{
+			delete[] controller;
+			delete[] memory;
+		}
 		static Memory& GetSingleton()
 		{
 			static Memory* m = new Memory();
@@ -183,11 +184,11 @@ namespace hw
 		}
 	};
 
-	__declspec(allocator) void* _Alloc(const size_t _Count)
+	__declspec(allocator) void* Alloc(const size_t _Count)
 	{
 		return Memory::GetSingleton().Allocate(_Count);
 	}
-	void _Dealloc(void* const _Ptr, const size_t _Count)
+	void Dealloc(void* const _Ptr, const size_t _Count)
 	{
 		Memory::GetSingleton().Deallocate(_Ptr, _Count);
 	}
@@ -216,12 +217,12 @@ namespace hw
 
 		void deallocate(_Ty* const _Ptr, const size_t _Count)
 		{
-			_Dealloc(_Ptr, _Count * sizeof(_Ty));
+			Dealloc(_Ptr, _Count * sizeof(_Ty));
 		}
 
 		_Ty* allocate(const size_t _Count)
 		{
-			return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty)));
+			return static_cast<_Ty*>(Alloc(_Count * sizeof(_Ty)));
 		}
 	};
 
