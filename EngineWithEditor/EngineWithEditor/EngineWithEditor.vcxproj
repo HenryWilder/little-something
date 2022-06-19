@@ -176,6 +176,10 @@
   <ItemGroup>
     <ClInclude Include="containers.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="preview.frag" />
+    <None Include="grip.frag" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

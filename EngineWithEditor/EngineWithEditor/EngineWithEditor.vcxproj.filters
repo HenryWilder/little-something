@@ -24,4 +24,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="grip.frag">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="preview.frag">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
 </Project>

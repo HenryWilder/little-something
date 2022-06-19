@@ -184,13 +184,33 @@ namespace hw
 		}
 	};
 
-	__declspec(allocator) void* Alloc(const size_t _Count)
+	void _Dealloc(void* const _Ptr, const size_t _Count)
+	{
+		Memory::GetSingleton().Deallocate(_Ptr, _Count);
+	}
+	__declspec(allocator) void* _Alloc(const size_t _Count)
 	{
 		return Memory::GetSingleton().Allocate(_Count);
 	}
-	void Dealloc(void* const _Ptr, const size_t _Count)
+
+	template<typename _Ty>
+	void Dealloc(_Ty* const _Ptr, const size_t _Count = 1)
 	{
-		Memory::GetSingleton().Deallocate(_Ptr, _Count);
+		_Dealloc(_Ptr, _Count * sizeof(_Ty));
+	}
+
+	template<typename _Ty>
+	_Ty* Alloc(const size_t _Count = 1)
+	{
+		return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty)));
+	}
+
+	template<typename _Ty, typename... _Args>
+	_Ty* New(_Args&&... _Val)
+	{
+		_Ty* ptr = static_cast<_Ty*>(_Alloc(sizeof(_Ty)));
+		*ptr = _Ty(std::forward<_Args>(_Val)...);
+		return ptr;
 	}
 
 	template <class _Ty>
@@ -217,12 +237,12 @@ namespace hw
 
 		void deallocate(_Ty* const _Ptr, const size_t _Count)
 		{
-			Dealloc(_Ptr, _Count * sizeof(_Ty));
+			Dealloc(_Ptr, _Count);
 		}
 
 		_Ty* allocate(const size_t _Count)
 		{
-			return static_cast<_Ty*>(Alloc(_Count * sizeof(_Ty)));
+			return Alloc<_Ty>(_Count);
 		}
 	};
 

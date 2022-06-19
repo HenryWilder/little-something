@@ -5,6 +5,8 @@
 !*.gitignore
 !*.cpp
 !*.h
+!*.frag
+!*.vert
 !*.sln
 !*.vcxproj
 !*.vcxproj.filters
