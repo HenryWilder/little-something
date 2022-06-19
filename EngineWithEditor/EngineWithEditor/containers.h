@@ -64,10 +64,12 @@ namespace hw
 
 		inline void ShiftBlocksForwardOne(size_t blockIndex) noexcept
 		{
+			_ASSERT_EXPR(blockIndex + 1 < _ControllerCapacity, L"Insufficient capacity for memory block shift");
 			Block* block = controller + blockIndex;
 			size_t srcSize = validBlocks - blockIndex;
 			size_t destSize = _ControllerCapacity - blockIndex;
-			memmove_s(block + 1, destSize, block, srcSize);
+			if (memmove_s(block + 1, destSize, block, srcSize) == 0)
+				++validBlocks;
 		}
 
 		inline void _SubdivideBlock(size_t blockIndex, size_t size) noexcept
@@ -84,6 +86,10 @@ namespace hw
 		// Doesn't work if there are no remaining spaces in the controller
 		void Fragment(size_t blockIndex, size_t size)
 		{
+			if (size == controller[blockIndex].size) return;
+			if (size > controller[blockIndex].size)
+				return _ASSERT_EXPR(false, L"Cannot fragment into larger size");
+
 			size_t nextBlockIndex = blockIndex + 1;
 			if (nextBlockIndex >= _ControllerCapacity)
 				return _ASSERT_EXPR(false, L"Insufficient space to subdivide");
@@ -93,6 +99,7 @@ namespace hw
 		}
 
 		// Combines adjacent, out-of-use blocks into single blocks to better represent the free, contiguous memory
+		// Call this when deallocating memory
 		void Defrag()
 		{
 			size_t startIndex = 0;
@@ -124,12 +131,23 @@ namespace hw
 			validBlocks = newValidCount;
 		}
 		
-		Block* FindFreeBlock(size_t minSize)
+		Block* FindFreeBlock(size_t size)
 		{
-			for ()
+			for (size_t i = 0; IsValidBlock(i); ++i)
 			{
-
+				if (!controller[i].inUse && controller[i].size >= size)
+					return controller + i;
 			}
+			return nullptr;
+		}
+		Block* FindBlockByStart(void* start)
+		{
+			for (size_t i = 0; IsValidBlock(i); ++i)
+			{
+				if (controller[i].start == start)
+					return controller + i;
+			}
+			return nullptr;
 		}
 
 		Memory()
@@ -147,16 +165,18 @@ namespace hw
 
 		__declspec(allocator) void* Allocate(const size_t _Count)
 		{
-			for (size_t i = 0; i < _ControllerCapacity && RemainingSpace(i) < _Count; ++i)
-			{
-				if (controller[i].inUse) continue;
-
-			}
-			return nullptr;
+			Block* block = FindFreeBlock(_Count);
+			if (!block) throw std::bad_alloc();
+			block->inUse = true;
+			return block->start;
 		}
+		// It is safe to free freed memory
 		void Deallocate(void* const _Ptr, const size_t _Count)
 		{
-
+			Block* block = FindBlockByStart(_Ptr);
+			_ASSERT_EXPR(block->size != _Count, L"tried to deallocate potentially unowned block");
+			block->inUse = false;
+			Defrag();
 		}
 	};
 
@@ -196,42 +216,42 @@ namespace hw
 			_Dealloc(_Ptr, _Count * sizeof(_Ty));
 		}
 
-		_Ty* allocate(const size_t _Count)
+		__declspec(allocator) _Ty* allocate(const size_t _Count)
 		{
 			return static_cast<_Ty*>(_Alloc(_Count * sizeof(_Ty));
 		}
 	};
-}
 
-template<class _Ty, size_t _Size>
-using array = std::array<_Ty, _Size>;
-template<class _Ty>
-using vector = std::vector<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using deque = std::deque<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using forward_list = std::forward_list<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using list = std::list<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using stack = std::stack<_Ty, hw::deque<_Ty>>;
-template<class _Ty>
-using queue = std::queue<_Ty, hw::deque<_Ty>>;
-template<class _Ty>
-using priority_queue = std::priority_queue<_Ty, hw::deque<_Ty>>;
-template<class _Ty>
-using set = std::set<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using multiset = std::multiset<_Ty, hw::Allocator<_Ty>>;
-template<class _Kty, class _Ty>
-using map = std::map<_Kty, _Ty, std::less<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
-template<class _Kty, class _Ty>
-using multimap = std::multimap<_Kty, _Ty, std::less<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
-template<class _Ty>
-using unordered_set = std::unordered_set<_Ty, hw::Allocator<_Ty>>;
-template<class _Ty>
-using unordered_multiset = std::unordered_multiset<_Ty, hw::Allocator<_Ty>>;
-template<class _Kty, class _Ty>
-using unordered_map = std::unordered_map<_Kty, _Ty, std::hash<_Kty>, std::equal_to<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
-template<class _Kty, class _Ty>
-using unordered_multimap = std::unordered_multimap<_Kty, _Ty, std::hash<_Kty>, std::equal_to<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
+	template<class _Ty, size_t _Size>
+	using array = std::array<_Ty, _Size>;
+	template<class _Ty>
+	using vector = std::vector<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using deque = std::deque<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using forward_list = std::forward_list<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using list = std::list<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using stack = std::stack<_Ty, hw::deque<_Ty>>;
+	template<class _Ty>
+	using queue = std::queue<_Ty, hw::deque<_Ty>>;
+	template<class _Ty>
+	using priority_queue = std::priority_queue<_Ty, hw::deque<_Ty>>;
+	template<class _Ty>
+	using set = std::set<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using multiset = std::multiset<_Ty, hw::Allocator<_Ty>>;
+	template<class _Kty, class _Ty>
+	using map = std::map<_Kty, _Ty, std::less<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
+	template<class _Kty, class _Ty>
+	using multimap = std::multimap<_Kty, _Ty, std::less<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
+	template<class _Ty>
+	using unordered_set = std::unordered_set<_Ty, hw::Allocator<_Ty>>;
+	template<class _Ty>
+	using unordered_multiset = std::unordered_multiset<_Ty, hw::Allocator<_Ty>>;
+	template<class _Kty, class _Ty>
+	using unordered_map = std::unordered_map<_Kty, _Ty, std::hash<_Kty>, std::equal_to<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
+	template<class _Kty, class _Ty>
+	using unordered_multimap = std::unordered_multimap<_Kty, _Ty, std::hash<_Kty>, std::equal_to<_Kty>, hw::Allocator<std::pair<const _Kty, _Ty>>>;
+}
