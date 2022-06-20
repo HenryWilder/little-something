@@ -1,6 +1,5 @@
 #pragma once
 #include <string>
-#include <raylib.h>
 
 using namespace std::string_literals;
 
@@ -151,6 +150,7 @@ const Vec2 Vec2::right = Vec2(1,0);
 const Vec2 Vec2::up = Vec2(0,1);
 const Vec2 Vec2::zero = Vec2(0,0);
 
+int size = sizeof(Vec2) / sizeof(float);
 
 class Rect
 {

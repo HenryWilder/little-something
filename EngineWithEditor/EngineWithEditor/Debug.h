@@ -1,4 +1,5 @@
 #pragma once
+#include <raylib.h>
 
 // Todo
 namespace Debug

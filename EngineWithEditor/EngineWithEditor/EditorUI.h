@@ -1,6 +1,6 @@
 #pragma once
-#include <string>
 #include <raylib.h>
+#include "Types.h"
 
 void DrawRectangleOutlined(Rectangle rec, Color fillColor, Color linesColor)
 {
