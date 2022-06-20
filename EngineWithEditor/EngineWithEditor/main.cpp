@@ -121,13 +121,29 @@ namespace UI
 		}
 	};
 
-	struct PaneInteractArgs
+	enum class PaneInteractFlags
 	{
-		bool focused = false;
-		bool beingDragged = false;
-		bool resizingX = false;
-		bool resizingY = false;
+		focused		 = 0b0001,
+		beingDragged = 0b0010,
+		resizingX	 = 0b0100,
+		resizingY	 = 0b1000,
 	};
+	PaneInteractFlags operator|(PaneInteractFlags a, PaneInteractFlags b)
+	{
+		return PaneInteractFlags((int)a | (int)b);
+	}
+	PaneInteractFlags operator&(PaneInteractFlags a, PaneInteractFlags b)
+	{
+		return PaneInteractFlags((int)a & (int)b);
+	}
+	bool operator!(PaneInteractFlags what)
+	{
+		return !(bool)what;
+	}
+	bool Contains(PaneInteractFlags set, PaneInteractFlags flag)
+	{
+		return !!((int)set & (int)flag);
+	}
 
 	// A window that can be moved around on the main window
 	struct Pane
@@ -191,118 +207,64 @@ namespace UI
 				if (gripRect.width < minSize) gripRect.width = minSize;
 			}
 		}
-		void Snap()
-		{
 
-		}
-
-		void Update()
+		HoverRegion CheckHover()
 		{
 			Vector2 cursor = GetMousePosition();
-			HoverRegion hoverState;
 
-			// Determine what part is being hovered
+			// Check if hovering the main rectangle or the grip
+			if (CheckCollisionPointRec(cursor, rect))
 			{
-				Rectangle expandedRect = rect;
-				expandedRect.width += edgeSize;
-				expandedRect.height += edgeSize;
+				if (CheckCollisionPointRec(cursor, gripRect))
+					return HoverRegion::handle;
+				return HoverRegion::hovering;
 
-				// Static 'hover' resulting from interaction state
-				if (beingDragged)
-					hoverState = HoverRegion::handle;
-				else if (resizingX && resizingY)
-					hoverState = HoverRegion::corner;
-				else if (resizingX)
-					hoverState = HoverRegion::edge_right;
-				else if (resizingY)
-					hoverState = HoverRegion::edge_bottom;
-
-				// Check if hovering the main rectangle or the grip
-				else if (CheckCollisionPointRec(cursor, rect))
-				{
-					hoverState = HoverRegion::hovering;
-					if (CheckCollisionPointRec(cursor, gripRect))
-						hoverState = HoverRegion::handle;
-				}
-
-				// Check if hovering an edge
-				else if (CheckCollisionPointRec(cursor, expandedRect))
-				{
-					if (cursor.x >= rect.x + rect.width - edgeSize && cursor.y >= rect.y + rect.height)
-						hoverState = HoverRegion::corner;
-					else if (cursor.x >= rect.x + rect.width)
-						hoverState = HoverRegion::edge_right;
-					else if (cursor.y >= rect.y + rect.height)
-						hoverState = HoverRegion::edge_bottom;
-					else
-						hoverState = HoverRegion::notHovering;
-				}
-
-				// Hovering nothing
-				else hoverState = HoverRegion::notHovering;
 			}
 
-			// Determine if interaction is happening
+			Rectangle expandedRect = rect;
+			expandedRect.width += edgeSize;
+			expandedRect.height += edgeSize;
+
+			// Check if hovering an edge
+			if (CheckCollisionPointRec(cursor, expandedRect))
 			{
-				// Set states on press
-				if (hoverState != HoverRegion::notHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-				{
-					switch (hoverState)
-					{
-					case HoverRegion::edge_right:
-						resizingX = true;
-						break;
-					case HoverRegion::edge_bottom:
-						resizingY = true;
-						break;
-					case HoverRegion::corner:
-						resizingX = true;
-						resizingY = true;
-						break;
-					case HoverRegion::handle:
-						beingDragged = true;
-						focused = true;
-						break;
-					case HoverRegion::hovering:
-						focused = true;
-						break;
-					default:
-						break;
-					}
-				}
-
-				// Reset states on release
-				if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
-				{
-					resizingX = false;
-					resizingY = false;
-					beingDragged = false;
-				}
-
-				// Update mouse cursor
-				if (cursorShapeMode == CursorShapeMode::none &&
-					hoverState != HoverRegion::notHovering)
-				{
-					switch (hoverState)
-					{
-					case HoverRegion::edge_right:
-						cursorShapeMode = CursorShapeMode::resizeRight;
-						break;
-					case HoverRegion::edge_bottom:
-						cursorShapeMode = CursorShapeMode::resizeDown;
-						break;
-					case HoverRegion::corner:
-						cursorShapeMode = CursorShapeMode::resizeDiagonal;
-						break;
-					case HoverRegion::handle:
-						cursorShapeMode = CursorShapeMode::resizeAll;
-						break;
-					default:
-						break;
-					}
-				}
+				if (cursor.x >= rect.x + rect.width - edgeSize && cursor.y >= rect.y + rect.height)
+					return HoverRegion::corner;
+				if (cursor.x >= rect.x + rect.width)
+					return HoverRegion::edge_right;
+				if (cursor.y >= rect.y + rect.height)
+					return HoverRegion::edge_bottom;
 			}
+
+			// Hovering nothing
+			return HoverRegion::notHovering;
 		}
+
+		PaneInteractFlags CheckInteraction(HoverRegion hoverState)
+		{
+			PaneInteractFlags flags = PaneInteractFlags(0);
+
+			// Set states on press
+			if (hoverState != HoverRegion::notHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+			{
+				switch (hoverState)
+				{
+				case HoverRegion::edge_right:  flags = PaneInteractFlags::resizingX;								   break;
+				case HoverRegion::edge_bottom: flags = PaneInteractFlags::resizingY;								   break;
+				case HoverRegion::corner:	   flags = PaneInteractFlags::resizingX | PaneInteractFlags::resizingY;    break;
+				case HoverRegion::handle:      flags = PaneInteractFlags::focused   | PaneInteractFlags::beingDragged; break;
+				case HoverRegion::hovering:    flags = PaneInteractFlags::focused;									   break;
+				default: break;
+				}
+			}
+
+			// Reset states on release
+			if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+				flags = flags & PaneInteractFlags::focused;
+
+			return flags;
+		}
+
 		void Draw() const
 		{
 			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
@@ -323,7 +285,8 @@ namespace UI
 			}
 			DrawText(name, (int)rect.x + 4, (int)rect.y + 4, Theme::fontSize, Theme::color_foreground);
 		}
-		void UpdateFocused(PaneInteractArgs args)
+
+		void UpdateFocused(PaneInteractFlags flags)
 		{
 			// Update things that occur due to interaction
 			{
@@ -331,18 +294,19 @@ namespace UI
 
 				{
 					Vector2 resizeDelta = mouseDelta;
-					if (!args.resizingX) resizeDelta.x = 0;
-					if (!args.resizingY) resizeDelta.y = 0;
+					if (!(flags & PaneInteractFlags::resizingX)) resizeDelta.x = 0;
+					if (!(flags & PaneInteractFlags::resizingY)) resizeDelta.y = 0;
 					Resize(resizeDelta);
 				}
 
-				if (args.beingDragged) Move(mouseDelta);
+				if (!!(flags & PaneInteractFlags::beingDragged)) Move(mouseDelta);
 			}
 		}
+
 		// Assume focused is always true
-		void DrawFocused(PaneInteractArgs args)
+		void DrawFocused(PaneInteractFlags flags)
 		{
-			if (args.beingDragged) BeginPreviewMode();
+			if (!!(flags & PaneInteractFlags::beingDragged)) BeginPreviewMode();
 			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
 			Rectangle gripDrawRect = gripRect;
 			if (gripIsVertical)
@@ -354,16 +318,36 @@ namespace UI
 			}
 			else
 			{
-				if (args.focused) DrawRectangleRec(gripRect, Theme::color_highlight);
+				if (!!(flags & PaneInteractFlags::focused)) DrawRectangleRec(gripRect, Theme::color_highlight);
 				float nameWidth = (float)(MeasureText(name, Theme::fontSize) + 4);
 				gripDrawRect.x += nameWidth;
 				gripDrawRect.width -= nameWidth;
 				DrawGrip(gripDrawRect, Theme::color_foreground);
 			}
 			DrawText(name, (int)rect.x + 4, (int)rect.y + 4, Theme::fontSize, Theme::color_foreground);
-			if (args.beingDragged) EndPreviewMode();
+			if (!!(flags & PaneInteractFlags::beingDragged)) EndPreviewMode();
 		}
 	};
+	void UpdateCursorShapeModeWithoutOverride(Pane::HoverRegion hoverState)
+	{
+		switch (hoverState)
+		{
+		case UI::Pane::HoverRegion::edge_right:
+			UI::cursorShapeMode = UI::CursorShapeMode::resizeRight;
+			break;
+		case UI::Pane::HoverRegion::edge_bottom:
+			UI::cursorShapeMode = UI::CursorShapeMode::resizeDown;
+			break;
+		case UI::Pane::HoverRegion::corner:
+			UI::cursorShapeMode = UI::CursorShapeMode::resizeDiagonal;
+			break;
+		case UI::Pane::HoverRegion::handle:
+			UI::cursorShapeMode = UI::CursorShapeMode::resizeAll;
+			break;
+		default: // Don't override
+			break;
+		}
+	}
 
 	SnapRect::SnapRect(Rectangle rect) noexcept :
 		regions{
@@ -426,48 +410,62 @@ int main()
 	panes.push_back(hw::New<UI::Pane>("Test2", true));
 	panes.back()->Move({50,0});
 
-	UI::Pane* lastFrameFocusedPane = nullptr;
-
 	UI::SnapRect snapRect;
 	UI::SnapRect::Region snapRegion;
-
+	UI::PaneInteractFlags flags;
+	UI::Pane* focusedPane = nullptr;
 	while (!WindowShouldClose())
 	{
-		UI::Pane* focusedPane = nullptr;
+		UI::Pane::HoverRegion hoverState;
+		bool focusedIsDirty = true;
 		snapRegion = UI::SnapRect::Region::floating;
+		UI::cursorShapeMode = UI::CursorShapeMode::none;
 
 		// Update panes
 		for (UI::Pane* pane : panes)
 		{
-			pane->Update();
-			if (pane->focused && pane != lastFrameFocusedPane)
-				focusedPane = pane;
+			if (pane == focusedPane) continue;
+			hoverState = pane->CheckHover();
+
+			if (hoverState == UI::Pane::HoverRegion::notHovering) continue;
+			UpdateCursorShapeModeWithoutOverride(hoverState);
+			flags = pane->CheckInteraction(hoverState);
+
+			if (!(flags & UI::PaneInteractFlags::focused)) continue;
+			focusedPane = pane;
+			focusedIsDirty = false;
 		}
 
-		// Update focus
-		if (!!focusedPane && lastFrameFocusedPane != focusedPane)
+		// Un-dirty focused
+		if (!!focusedPane)
 		{
-			auto it = std::find(panes.begin(), panes.end(), focusedPane);
-			panes.erase(it);
-			panes.push_back(focusedPane);
-			if (!!lastFrameFocusedPane)
-				lastFrameFocusedPane->focused = false;
-			focusedPane->focused = true;
-		}
-		lastFrameFocusedPane = focusedPane;
+			if (focusedIsDirty) // Update flags if dirty
+				flags = focusedPane->CheckInteraction(focusedPane->CheckHover());
 
-		// Check for snap prospects
-		if (!!focusedPane && focusedPane->beingDragged)
+			if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hoverState == UI::Pane::HoverRegion::notHovering)
+				focusedPane = nullptr;
+		}
+
+		// Update focused
+		if (!!focusedPane)
 		{
-			Vector2 cursor = GetMousePosition();
-			for (UI::Pane* pane : panes)
+			focusedPane->UpdateFocused(flags);
+
+			UpdateCursorShapeModeWithoutOverride(hoverState);
+
+			// Check for snap prospects
+			if (UI::Contains(flags, UI::PaneInteractFlags::beingDragged))
 			{
-				if (pane == focusedPane) [[unlikely]] continue; // Exactly one
-				if (CheckCollisionPointRec(cursor, pane->rect)) [[unlikely]] // Only one, if any
+				Vector2 cursor = GetMousePosition();
+				for (UI::Pane* pane : panes)
 				{
-					snapRect = UI::SnapRect(pane->rect);
-					snapRegion = snapRect.CheckCollision(cursor);
-					break;
+					if (pane == focusedPane) [[unlikely]] continue; // Exactly one
+					if (CheckCollisionPointRec(cursor, pane->rect)) [[unlikely]] // Only one, if any
+					{
+						snapRect = UI::SnapRect(pane->rect);
+						snapRegion = snapRect.CheckCollision(cursor);
+						break;
+					}
 				}
 			}
 		}
@@ -475,39 +473,27 @@ int main()
 		// Update mouse cursor
 		switch (UI::cursorShapeMode)
 		{
-		default:
-			SetMouseCursor(MOUSE_CURSOR_DEFAULT);
-			break;
-		case UI::CursorShapeMode::resizeRight:
-			SetMouseCursor(MOUSE_CURSOR_RESIZE_EW);
-			break;
-		case UI::CursorShapeMode::resizeDown:
-			SetMouseCursor(MOUSE_CURSOR_RESIZE_NS);
-			break;
-		case UI::CursorShapeMode::resizeDiagonal:
-			SetMouseCursor(MOUSE_CURSOR_RESIZE_NWSE);
-			break;
-		case UI::CursorShapeMode::resizeAll:
-			SetMouseCursor(MOUSE_CURSOR_RESIZE_ALL);
-			break;
+		default:								  SetMouseCursor(MOUSE_CURSOR_DEFAULT);     break;
+		case UI::CursorShapeMode::resizeRight:    SetMouseCursor(MOUSE_CURSOR_RESIZE_EW);   break;
+		case UI::CursorShapeMode::resizeDown:	  SetMouseCursor(MOUSE_CURSOR_RESIZE_NS);   break;
+		case UI::CursorShapeMode::resizeDiagonal: SetMouseCursor(MOUSE_CURSOR_RESIZE_NWSE); break;
+		case UI::CursorShapeMode::resizeAll:      SetMouseCursor(MOUSE_CURSOR_RESIZE_ALL);  break;
 		}
-		UI::cursorShapeMode = UI::CursorShapeMode::none;
 
 		// Draw
 		BeginDrawing();
 		{
 			ClearBackground(UI::Theme::color_main);
 
+			// Draw unfocused panes
 			for (const UI::Pane* pane : panes)
 			{
-				if (pane == focusedPane) [[unlikely]] // Only one, if any
-					continue;
+				if (pane == focusedPane) [[unlikely]] continue; // Only one, if any
 				pane->Draw();
 			}
-			if (const Rectangle* rec = snapRect.RectFromRegion(snapRegion); !!rec)
-				DrawRectangleRec(*rec, UI::Theme::color_highlight);
-			if (!!focusedPane)
-				focusedPane->Draw();
+			if (snapRegion != UI::SnapRect::Region::floating)
+				DrawRectangleRec(*snapRect.RectFromRegion(snapRegion), UI::Theme::color_highlight);
+			if (!!focusedPane) focusedPane->DrawFocused(flags);
 #if true
 			for (const UI::Pane* pane : panes)
 			{
