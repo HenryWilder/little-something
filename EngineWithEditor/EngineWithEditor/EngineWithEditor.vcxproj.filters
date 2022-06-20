@@ -23,6 +23,15 @@
     <ClInclude Include="containers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="EditorUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Debug.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="grip.frag">
@@ -31,5 +40,6 @@
     <None Include="preview.frag">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="cpp.hint" />
   </ItemGroup>
 </Project>
