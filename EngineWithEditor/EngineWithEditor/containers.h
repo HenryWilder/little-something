@@ -115,7 +115,7 @@ namespace hw
 				for (endIndex = startIndex + 1; IsValidBlock(endIndex); ++endIndex)
 				{
 					if (controller[endIndex].inUse) break;
-					if (!anyChanges) [[unlikely]] anyChanges = true; // Will only do this one time during this function
+					anyChanges = true;
 					contiguousSize += controller[endIndex].size;
 					controller[endIndex].Invalidate();
 					newValidCount--;
