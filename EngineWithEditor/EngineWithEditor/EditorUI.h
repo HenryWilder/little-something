@@ -1,33 +1,36 @@
 #pragma once
+namespace rl {
 #include <raylib.h>
+
+	void DrawRectangleOutlined(Rectangle rec, Color fillColor, Color linesColor)
+	{
+		DrawRectangleRec(rec, fillColor);
+		DrawRectangleLinesEx(rec, 1.0f, linesColor);
+	}
+}
 #include "Types.h"
 
-void DrawRectangleOutlined(Rectangle rec, Color fillColor, Color linesColor)
-{
-	DrawRectangleRec(rec, fillColor);
-	DrawRectangleLinesEx(rec, 1.0f, linesColor);
-}
 
 namespace EditorUI
 {
-	Texture uiTexture;
+	rl::Texture uiTexture;
 
 	namespace Theme
 	{
-		Color color_foreground = { 255,255,255,255 };
-		Color color_highlight = { 0,127,255,255 };
-		Color color_accent = { 80,80,80,255 };
-		Color color_main = { 35,35,35,255 };
-		Color color_body = { 20,20,20,255 };
+		rl::Color color_foreground = { 255,255,255,255 };
+		rl::Color color_highlight = { 0,127,255,255 };
+		rl::Color color_accent = { 80,80,80,255 };
+		rl::Color color_main = { 35,35,35,255 };
+		rl::Color color_body = { 20,20,20,255 };
 		int fontSize = 10;
 	}
 
-	Shader gripShader;
+	rl::Shader gripShader;
 	int gripShaderSizeLoc;
 
-	Shader previewShader;
-	inline void BeginPreviewMode() noexcept(noexcept(BeginShaderMode)) { BeginShaderMode(previewShader); }
-	inline void EndPreviewMode() noexcept(noexcept(EndShaderMode)) { EndShaderMode(); }
+	rl::Shader previewShader;
+	inline void BeginPreviewMode() noexcept(noexcept(rl::BeginShaderMode)) { rl::BeginShaderMode(previewShader); }
+	inline void EndPreviewMode() noexcept(noexcept(rl::EndShaderMode)) { rl::EndShaderMode(); }
 
 	// Size of whichever axis of the grip is fixed
 	constexpr float gripFixedSize = 18;
@@ -43,17 +46,15 @@ namespace EditorUI
 	};
 	CursorShapeMode cursorShapeMode = CursorShapeMode::none;
 
-	void DrawGrip(Rectangle rect, Color color)
+	void DrawGrip(rl::Rectangle rect, rl::Color color)
 	{
 		{
-			float value[2];
-			value[0] = rect.width;
-			value[1] = rect.height;
-			SetShaderValue(gripShader, gripShaderSizeLoc, value, SHADER_UNIFORM_VEC2);
+			float value[2] = { rect.width, rect.height };
+			rl::SetShaderValue(gripShader, gripShaderSizeLoc, value, rl::SHADER_UNIFORM_VEC2);
 		}
-		BeginShaderMode(gripShader);
-		DrawTexturePro(uiTexture, { 0,0,1,1 }, rect, { 0,0 }, 0.0f, color);
-		EndShaderMode();
+		rl::BeginShaderMode(gripShader);
+		rl::DrawTexturePro(uiTexture, { 0,0,1,1 }, rect, { 0,0 }, 0.0f, color);
+		rl::EndShaderMode();
 	}
 
 	// A helper for checking where a potential snap is to be connected
@@ -64,25 +65,25 @@ namespace EditorUI
 		static constexpr float snapSize = 7;
 		static constexpr float centerInset = 50;
 
-		Rectangle regions[5];
+		rl::Rectangle regions[5];
 
 		SnapRect() = default;
-		SnapRect(Rectangle rect) noexcept;
+		SnapRect(rl::Rectangle rect) noexcept;
 
 		inline Region IndexToRegion(size_t index) noexcept { return (Region)(index + 1); }
 		inline int IndexFromRegion(Region region) noexcept { return (size_t)region - 1; }
-		_Ret_opt_ const Rectangle* RectFromRegion(Region region) noexcept
+		_Ret_opt_ const rl::Rectangle* RectFromRegion(Region region) noexcept
 		{
 			if (region == Region::floating)
 				return nullptr;
 			_ASSERT_EXPR(IndexFromRegion(region) < 5, L"Region should not be modified externally");
 			return &regions[IndexFromRegion(region)];
 		}
-		Region CheckCollision(Vector2 point) noexcept
+		Region CheckCollision(rl::Vector2 point) noexcept
 		{
-			for (const Rectangle& rect : regions)
+			for (const rl::Rectangle& rect : regions)
 			{
-				if (CheckCollisionPointRec(point, rect))
+				if (rl::CheckCollisionPointRec(point, rect))
 					return IndexToRegion((ptrdiff_t)regions - (ptrdiff_t)&rect);
 			}
 			return Region::floating;
@@ -121,8 +122,8 @@ namespace EditorUI
 		inline static float minSize = gripFixedSize;
 
 		const char* name;
-		Rectangle rect;
-		Rectangle gripRect;
+		rl::Rectangle rect;
+		rl::Rectangle gripRect;
 		bool gripIsVertical;
 
 		enum class HoverRegion
@@ -151,14 +152,14 @@ namespace EditorUI
 			// Nothing yet
 		}
 
-		void Move(Vector2 delta) noexcept
+		void Move(rl::Vector2 delta) noexcept
 		{
 			rect.x += delta.x;
 			rect.y += delta.y;
 			gripRect.x += delta.x;
 			gripRect.y += delta.y;
 		}
-		void Resize(Vector2 delta) noexcept
+		void Resize(rl::Vector2 delta) noexcept
 		{
 			rect.width += delta.x;
 			if (rect.width < minSize) rect.width = minSize;
@@ -178,7 +179,7 @@ namespace EditorUI
 
 		HoverRegion CheckHover()
 		{
-			Vector2 cursor = GetMousePosition();
+			rl::Vector2 cursor = rl::GetMousePosition();
 
 			// Check if hovering the main rectangle or the grip
 			if (CheckCollisionPointRec(cursor, rect))
@@ -189,7 +190,7 @@ namespace EditorUI
 
 			}
 
-			Rectangle expandedRect = rect;
+			rl::Rectangle expandedRect = rect;
 			expandedRect.width += edgeSize;
 			expandedRect.height += edgeSize;
 
@@ -213,21 +214,21 @@ namespace EditorUI
 			PaneInteractFlags flags = PaneInteractFlags(0);
 
 			// Set states on press
-			if (hoverState != HoverRegion::notHovering && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+			if (hoverState != HoverRegion::notHovering && rl::IsMouseButtonPressed(rl::MOUSE_LEFT_BUTTON))
 			{
 				switch (hoverState)
 				{
-				case HoverRegion::edge_right:  flags = PaneInteractFlags::resizingX;								   break;
-				case HoverRegion::edge_bottom: flags = PaneInteractFlags::resizingY;								   break;
-				case HoverRegion::corner:	   flags = PaneInteractFlags::resizingX | PaneInteractFlags::resizingY;    break;
+				case HoverRegion::edge_right:  flags = PaneInteractFlags::resizingX;								 break;
+				case HoverRegion::edge_bottom: flags = PaneInteractFlags::resizingY;								 break;
+				case HoverRegion::corner:	   flags = PaneInteractFlags::resizingX | PaneInteractFlags::resizingY;  break;
 				case HoverRegion::handle:      flags = PaneInteractFlags::focused | PaneInteractFlags::beingDragged; break;
-				case HoverRegion::hovering:    flags = PaneInteractFlags::focused;									   break;
+				case HoverRegion::hovering:    flags = PaneInteractFlags::focused;									 break;
 				default: break;
 				}
 			}
 
 			// Reset states on release
-			if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+			if (rl::IsMouseButtonReleased(rl::MOUSE_LEFT_BUTTON))
 				flags = flags & PaneInteractFlags::focused;
 
 			return flags;
@@ -235,8 +236,8 @@ namespace EditorUI
 
 		void Draw() const
 		{
-			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
-			Rectangle gripDrawRect = gripRect;
+			rl::DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
+			rl::Rectangle gripDrawRect = gripRect;
 			if (gripIsVertical)
 			{
 				float nameHeight = (float)(Theme::fontSize + 4);
@@ -246,7 +247,7 @@ namespace EditorUI
 			}
 			else
 			{
-				float nameWidth = (float)(MeasureText(name, Theme::fontSize) + 4);
+				float nameWidth = (float)(rl::MeasureText(name, Theme::fontSize) + 4);
 				gripDrawRect.x += nameWidth;
 				gripDrawRect.width -= nameWidth;
 				DrawGrip(gripDrawRect, Theme::color_accent);
@@ -258,10 +259,10 @@ namespace EditorUI
 		{
 			// Update things that occur due to interaction
 			{
-				Vector2 mouseDelta = GetMouseDelta();
+				rl::Vector2 mouseDelta = rl::GetMouseDelta();
 
 				{
-					Vector2 resizeDelta = mouseDelta;
+					rl::Vector2 resizeDelta = mouseDelta;
 					if (!(flags & PaneInteractFlags::resizingX)) resizeDelta.x = 0;
 					if (!(flags & PaneInteractFlags::resizingY)) resizeDelta.y = 0;
 					Resize(resizeDelta);
@@ -276,7 +277,7 @@ namespace EditorUI
 		{
 			if (!!(flags & PaneInteractFlags::beingDragged)) BeginPreviewMode();
 			DrawRectangleOutlined(rect, Theme::color_main, Theme::color_accent);
-			Rectangle gripDrawRect = gripRect;
+			rl::Rectangle gripDrawRect = gripRect;
 			if (gripIsVertical)
 			{
 				float nameHeight = (float)(Theme::fontSize + 4);
@@ -287,7 +288,7 @@ namespace EditorUI
 			else
 			{
 				if (!!(flags & PaneInteractFlags::focused)) DrawRectangleRec(gripRect, Theme::color_highlight);
-				float nameWidth = (float)(MeasureText(name, Theme::fontSize) + 4);
+				float nameWidth = (float)(rl::MeasureText(name, Theme::fontSize) + 4);
 				gripDrawRect.x += nameWidth;
 				gripDrawRect.width -= nameWidth;
 				DrawGrip(gripDrawRect, Theme::color_foreground);
@@ -300,24 +301,24 @@ namespace EditorUI
 	{
 		switch (hoverState)
 		{
-		case UI::Pane::HoverRegion::edge_right:
-			UI::cursorShapeMode = UI::CursorShapeMode::resizeRight;
+		case Pane::HoverRegion::edge_right:
+			cursorShapeMode = CursorShapeMode::resizeRight;
 			break;
-		case UI::Pane::HoverRegion::edge_bottom:
-			UI::cursorShapeMode = UI::CursorShapeMode::resizeDown;
+		case Pane::HoverRegion::edge_bottom:
+			cursorShapeMode = CursorShapeMode::resizeDown;
 			break;
-		case UI::Pane::HoverRegion::corner:
-			UI::cursorShapeMode = UI::CursorShapeMode::resizeDiagonal;
+		case Pane::HoverRegion::corner:
+			cursorShapeMode = CursorShapeMode::resizeDiagonal;
 			break;
-		case UI::Pane::HoverRegion::handle:
-			UI::cursorShapeMode = UI::CursorShapeMode::resizeAll;
+		case Pane::HoverRegion::handle:
+			cursorShapeMode = CursorShapeMode::resizeAll;
 			break;
 		default: // Don't override
 			break;
 		}
 	}
 
-	SnapRect::SnapRect(Rectangle rect) noexcept :
+	SnapRect::SnapRect(rl::Rectangle rect) noexcept :
 		regions{
 			{
 				.x = rect.x,

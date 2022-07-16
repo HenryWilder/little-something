@@ -4,52 +4,53 @@
 #include "EditorUI.h"
 
 using namespace EditorUI;
+using namespace Engine;
 
 int main()
 {
 	Rect r;
 	r.width = 2;
 
-	SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT | FLAG_MSAA_4X_HINT);
-	InitWindow(1280, 720, "Henry's Editor");
-	SetTargetFPS(60);
+	rl::SetConfigFlags(rl::FLAG_WINDOW_RESIZABLE | rl::FLAG_VSYNC_HINT | rl::FLAG_MSAA_4X_HINT);
+	rl::InitWindow(1280, 720, "Henry's Editor");
+	rl::SetTargetFPS(60);
 
 	{
-		Image defaultImg = GenImageColor(1, 1, WHITE);
-		UI::uiTexture = LoadTextureFromImage(defaultImg);
-		UnloadImage(defaultImg);
+		rl::Image defaultImg = rl::GenImageColor(1, 1, rl::WHITE);
+		uiTexture = rl::LoadTextureFromImage(defaultImg);
+		rl::UnloadImage(defaultImg);
 	}
 
-	UI::previewShader = LoadShader(0, "preview.frag");
-	UI::gripShader = LoadShader(0, "grip.frag");
-	UI::gripShaderSizeLoc = GetShaderLocation(UI::gripShader, "size");
+	previewShader = rl::LoadShader(0, "preview.frag");
+	gripShader = rl::LoadShader(0, "grip.frag");
+	gripShaderSizeLoc = rl::GetShaderLocation(gripShader, "size");
 
-	hw::vector<UI::Pane*> panes;
+	hw::vector<Pane*> panes;
 	panes.reserve(8);
-	panes.push_back(hw::New<UI::Pane>("Test1", false));
-	panes.push_back(hw::New<UI::Pane>("Test2", true));
+	panes.push_back(hw::New<Pane>("Test1", false));
+	panes.push_back(hw::New<Pane>("Test2", true));
 	panes.back()->Move({50,0});
 
-	UI::Pane* focusedPane = nullptr;
-	while (!WindowShouldClose())
+	Pane* focusedPane = nullptr;
+	while (!rl::WindowShouldClose())
 	{
 		
 
 		// Draw
-		BeginDrawing();
+		rl::BeginDrawing();
 		{
-			ClearBackground(UI::Theme::color_main);
+			rl::ClearBackground(Theme::color_main);
 
 			
 		}
-		EndDrawing();
+		rl::EndDrawing();
 	}
 
-	UnloadShader(UI::gripShader);
-	UnloadShader(UI::previewShader);
-	UnloadTexture(UI::uiTexture);
+	rl::UnloadShader(gripShader);
+	rl::UnloadShader(previewShader);
+	rl::UnloadTexture(uiTexture);
 
-	CloseWindow();
+	rl::CloseWindow();
 
 	return 0;
 }

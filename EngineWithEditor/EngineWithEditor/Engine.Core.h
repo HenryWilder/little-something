@@ -1,7 +1,17 @@
 #pragma once
+#include <cmath>
 #include <string>
 
 using namespace std::string_literals;
+
+#define TODO _ASSERT_EXPR(false, L"Missing implementation");
+
+// A standard string
+using string = std::string;
+// String input
+using strcref = const std::string&;
+// A C-style string
+using cstr = const char*;
 
 #define var auto
 #define interface __interface
@@ -20,29 +30,158 @@ namespace Engine
 {
 	interface IFormattable
 	{
-		const std::string&& ToString() const = 0;
+		string ToString() const = 0;
 	};
 
-	class RangeInt
+	class RangeInt : public IFormattable
 	{
 	private:
-
+		int _start, _length;
 
 	public:
-		int Foo() {}
-		void Bar(int) {}
+		int GetStart() const { return _start; }
+		int GetLength() const { return _length; }
+		int GetEnd() const { return _start + _length; }
+		void SetStart(int value) { _start = value; }
+		void SetLength(int value) { _length = value; }
+		void SetEnd(int value) { _length = value - _start; }
 
-		RW(Foo,Bar) int end;
-		RW(Foo,Bar) int length;
-		RW(Foo,Bar) int start;
+		// The starting index of the range, where 0 is the first position, 1 is the second, 2 is the third, and so on.
+		RW(GetStart,SetStart) int start;
+		// The length of the range.
+		RW(GetLength,SetLength) int length;
+		// The end index of the range (not inclusive).
+		RW(GetEnd,SetEnd) int end;
 
-		RangeInt() {}
+		RangeInt() = default;
+		RangeInt(int start, int length) : _start(start), _length(length) {}
 	};
 
-	class Quaternion
+
+	// TODO
+	struct Color : public IFormattable
 	{
+	private:
+		float _c[4];
 
+		static inline float LinearFromSRGB(float srgb)
+		{
+			float linear = srgb / 255.0f;
+			if (linear <= 0.04045f) linear /= 12.92f;
+			else linear = std::powf((linear + 0.055f) / 1.055f, 2.4f);
+			return linear;
+		}
+		static inline Color LinearFromSRGB(Color srgb)
+		{
+			Color ret;
+			for (int i = 0; i < 4; ++i)
+			{
+				ret._c[i] = LinearFromSRGB(srgb._c[i]);
+			}
+			return ret;
+		}
+		static inline float LinearToSRGB(float linear)
+		{
+			float srgb;
+			if (linear <= 0.0031308f) srgb = linear * 12.92f;
+			else srgb = 1.055f * std::powf(linear, 1.0f / 2.4f) - 0.055f;
+			return srgb * 255.0f;
+		}
+		static inline Color LinearToSRGB(Color linear)
+		{
+			Color ret;
+			for (int i = 0; i < 4; ++i)
+			{
+				ret._c[i] = LinearToSRGB(linear._c[i]);
+			}
+			return ret;
+		}
+
+		const float* MaxColorComponent() const
+		{
+			const float* max = &_c[0];
+			for (int i = 1; i < 4; ++i)
+			{
+				if (_c[i] > *max) max = &_c[i];
+			}
+			return max;
+		}
+
+	public:
+		static const Color clear;
+
+		static const Color black;
+		static const Color gray;
+		static const Color white;
+
+		static const Color red;
+		static const Color yellow;
+		static const Color green;
+		static const Color cyan;
+		static const Color blue;
+		static const Color magenta;
+
+		float GetR() const { return _c[0]; }
+		float GetG() const { return _c[1]; }
+		float GetB() const { return _c[2]; }
+		float GetA() const { return _c[3]; }
+		Color GetGamma() const
+		{
+			TODO 
+		}
+		float GetGrayscale() const
+		{
+			TODO 
+		}
+		float GetLinear() const
+		{
+			TODO 
+		}
+		float GetMaxColorComponent() const
+		{
+			return *MaxColorComponent();
+		}
+
+		void SetR(float value) { _c[0] = value; }
+		void SetG(float value) { _c[1] = value; }
+		void SetB(float value) { _c[2] = value; }
+		void SetA(float value) { _c[3] = value; }
+		void SetGamma(Color value) { for (int i = 0; i < 4; ++i) { _c[i] = value[i]; } }
+		void SetLinear(float value) { _c[3] = value; }
+		void SetMaxColorComponent(float value) { *const_cast<float*>(MaxColorComponent()) = value; }
+
+		RW(GetR,SetR) float r;
+		RW(GetG,SetG) float g;
+		RW(GetB,SetB) float b;
+		RW(GetA,SetA) float a;
+		RW(Foo,Bar) Color gamma;
+		RO(Foo) float grayscale;
+		RW(Foo,Bar) Color linear;
+		RW(Foo,Bar) float maxColorComponent;
+
+		float& operator[](int componentIndex) { return _c[componentIndex]; }
+
+		Color() = default;
+		Color(float r, float g, float b, float a = 1.0f) : _c{ r,g,b,a } {}
+
+		string ToString() const { TODO }
+
+		static Color operator+(Color a, Color b) { return { a.r + b.r, a.g + b.g, a.b + b.b,  a.a + b.a }; }
+		static Color operator-(Color a, Color b) { return { a.r - b.r, a.g - b.g, a.b - b.b,  a.a - b.a }; }
+		static Color operator*(Color a, Color b) { return { a.r * b.r, a.g * b.g, a.b * b.b,  a.a * b.a }; }
+		static Color operator/(Color a, Color b) { return { a.r / b.r, a.g / b.g, a.b / b.b,  a.a / b.a }; }
 	};
+	const Color Color::clear(0, 0, 0, 0);
+	const Color Color::black(0, 0, 0, 1);
+	const Color Color::gray(0.5, 0.5, 0.5, 1);
+	const Color Color::white(1, 1, 1, 1);
+	const Color Color::red(1, 0, 0, 1);
+	const Color Color::yellow(1, 0.92, 0.016, 1);
+	const Color Color::green(0, 1, 0, 1);
+	const Color Color::cyan(0, 1, 1, 1);
+	const Color Color::blue(0, 0, 1, 1);
+	const Color Color::magenta(1, 0, 1, 1);
+
 
 	class Vector2 : public IFormattable
 	{
@@ -103,7 +242,7 @@ namespace Engine
 			this->x = x;
 			this->y = y;
 		}
-		const std::string&& ToString() const
+		string ToString() const
 		{
 			return "("s + std::to_string(x) + ", "s + std::to_string(y) + ")"s;
 		}
@@ -242,7 +381,7 @@ namespace Engine
 		{
 			return (xMin < other.xMax) && (xMax > other.x) && (yMin < other.yMax) && (yMax > other.yMin);
 		}
-		const std::string&& ToString() const
+		string ToString() const
 		{
 			return "("s + std::to_string(_x) + ", "s + std::to_string(_y) + ", "s + std::to_string(_w) + ", "s + std::to_string(_h) + ")"s;
 		}
@@ -317,7 +456,7 @@ namespace Engine
 			this->x = x;
 			this->y = y;
 		}
-		const std::string&& ToString() const
+		string ToString() const
 		{
 			return "("s + std::to_string(x) + ", "s + std::to_string(y) + ")"s;
 		}
@@ -507,7 +646,7 @@ namespace Engine
 			_h = max.x - _x;
 			_w = max.y - _y;
 		}
-		const std::string&& ToString() const
+		string ToString() const
 		{
 			return "("s + std::to_string(_x) + ", "s + std::to_string(_y) + ", "s + std::to_string(_w) + ", "s + std::to_string(_h) + ")"s;
 		}
@@ -519,17 +658,17 @@ namespace Engine
 		int left, top, right, bottom;
 
 	public:
-		int GetBottom() const { return bottom; }
+		int GetBottom()		const { return bottom; }
 		int GetHorizontal() const { return left + right; }
-		int GetLeft() const { return left; }
-		int GetRight() const { return right; }
-		int GetTop() const { return top; }
-		int GetVertical() const { return top + bottom; }
+		int GetLeft()		const { return left; }
+		int GetRight()		const { return right; }
+		int GetTop()		const { return top; }
+		int GetVertical()	const { return top + bottom; }
 
-		void SetBottom(int value) { bottom = value; }
-		void SetLeft(int value) { left = value; }
-		void SetRight(int value) { right = value; }
-		void SetTop(int value) { top = value; }
+		void SetBottom	(int value) { bottom = value; }
+		void SetLeft	(int value) { left = value; }
+		void SetRight	(int value) { right = value; }
+		void SetTop		(int value) { top = value; }
 
 		RO(GetHorizontal) int horizontal;
 		RO(GetVertical) int vertical;
@@ -561,57 +700,123 @@ namespace Engine
 			result.yMax = rect.yMax - bottom;
 			return result;
 		}
-		// @Todo: implement format provider
-		const std::string&& ToString() const
+		string ToString() const
 		{
 			return "("s + std::to_string(left) + ", "s + std::to_string(top) + ", "s + std::to_string(right) + ", "s + std::to_string(bottom) + ")"s;
 		}
 	};
 
+	/********************************************
+	* Bit mask that controls object destruction,
+	* saving and visibility in inspectors.
+	********************************************/
+	enum HideFlags : unsigned char
+	{
+		// A normal, visible object. This is the default.
+		None				  =  0,
+
+		// The object will not appear in the hierarchy.
+		HideInHierarchy		  =  1,
+		// It is not possible to view it in the inspector.
+		HideInInspector		  =  2,
+		// The object will not be saved to the Scene in the editor.
+		DontSaveInEditor	  =  4,
+		// The object is not editable in the Inspector.
+		NotEditable			  =  8,
+		// The object will not be saved when building a player.
+		DontSaveInBuild		  = 16,
+		// The object will not be unloaded by UnloadUnusedAssets.
+		DontUnloadUnusedAsset = 32,
+
+		// The object will not be saved to the Scene.
+		// It will not be destroyed when a new Scene is loaded.
+		// It is a shortcut for 'DontSaveInBuild | DontSaveInEditor | DontUnloadUnusedAsset'.
+		DontSave			  = DontSaveInEditor | DontSaveInBuild | DontUnloadUnusedAsset,
+		// The GameObject is not shown in the Hierarchy, not saved to Scenes,
+		// and not unloaded by Resources.UnloadUnusedAssets.
+		HideAndDontSave		  = HideInHierarchy | DontSaveInEditor | DontUnloadUnusedAsset,
+	};
+
+	/*******************************************************
+	* Base class for all objects the engine can reference.
+	* 
+	* Any public variable you make that derives from Object
+	* gets shown in the inspector as a drop target, allowing
+	* you to set the value from the GUI. Engine::Object is
+	* the base class of all built-in engine objects.
+	*******************************************************/
+	class Transform;
+	class Object : public IFormattable
+	{
+	private:
+		HideFlags _hideFlags;
+		string _name;
+		bool _destroyOnLoad = true;
+
+	public:
+		strcref GetName() const { return _name; }
+		void SetName(strcref value) { _name = value; }
+
+		HideFlags GetHideFlags() const { return _hideFlags; }
+		void SetHideFlags(HideFlags value) { _hideFlags = value; }
+
+		RW(GetHideFlags, SetHideFlags) HideFlags hideFlags;
+		RW(GetName, SetName) string name;
+
+		virtual string ToString() const { return _name; }
+
+		static void Destroy(Object* target) { delete target; }
+		static void DestroyImmediate(Object* target) { delete target; }
+		static void DontDestroyOnLoad(Object* target) { target->_destroyOnLoad = false; }
+		static void FindObjectOfType() { TODO }
+		static void FindObjectsOfType() { TODO }
+		static Object* Instantiate(const Object& original) { return new Object(original); }
+		static Object* Instantiate(const Object& original, Transform* parent);
+		
+		bool operator!=(const Object& other) { return this != &other; }
+		bool operator==(const Object& other) { return this == &other; }
+	};
+
 	// todo
-	class Component
+	class Component : public Object
 	{
 	private:
 
-
 	public:
-		int Foo() {}
-		void Bar(int) {}
-
 		RW(Foo,Bar) int gameObject;
 		RW(Foo,Bar) int tag;
 		RW(Foo,Bar) int transform;
 		RW(Foo,Bar) int hideFlags;
 		RW(Foo,Bar) int name;
 
-		void BroadcastMessage() {}
-		void CompareTag() {}
-		void GetComponent() {}
-		void GetComponentInChildren() {}
-		void GetComponentInParent() {}
-		void GetComponents() {}
-		void GetComponentsInChildren() {}
-		void GetComponentsInParent() {}
-		void SendMessage() {}
-		void SendMessageUpward() {}
-		void TryGetComponent() {}
-		void GetInstanceID() {}
-		void ToString() {}
+		void BroadcastMessage() { TODO }
+		void CompareTag() { TODO }
+		void GetComponent() { TODO }
+		void GetComponentInChildren() { TODO }
+		void GetComponentInParent() { TODO }
+		void GetComponents() { TODO }
+		void GetComponentsInChildren() { TODO }
+		void GetComponentsInParent() { TODO }
+		void SendMessage() { TODO }
+		void SendMessageUpward() { TODO }
+		void TryGetComponent() { TODO }
+	};
 
-		static void Destroy() {}
-		static void DestroyImmediate() {}
-		static void DontDestroyOnLoad() {}
-		static void FindObjectOfType() {}
-		static void FindObjectsOfType() {}
-		static void Instantiate() {}
+	class Behavior : public Component
+	{
+	private:
+		bool enabled;
+		
+	public:
+		bool IsEnabled() const { TODO }
+		void SetEnabled(bool value) { TODO }
 
-		operator bool() {}
-		bool operator!=(const Component& other) {}
-		bool operator==(const Component& other) {}
+		RW(IsEnabled,SetEnabled) bool enabled;
+		RW(IsEnabled,Bar) bool isActiveAndEnabled;
 	};
 
 
-	class Transform : public Component, public IFormattable
+	class Transform : public Component
 	{
 	private:
 
@@ -637,27 +842,33 @@ namespace Engine
 		RW(Foo,Bar) int up;
 		RW(Foo,Bar) int worldToLocalMatrix;
 
-		void DetachChildren() {}
-		void Find() {}
-		void GetChild() {}
-		void GetSiblingIndex() {}
-		void InverseTransformDirection() {}
-		void InverseTransformPoint() {}
-		void InverseTransformVector() {}
-		void IsChildOf() {}
-		void LookAt() {}
-		void Rotate() {}
-		void RotateAround() {}
-		void SetAsFirstSibling() {}
-		void SetAsLastSibling() {}
-		void SetParent() {}
-		void SetPositionAndRotation() {}
-		void SetSiblingIndex() {}
-		void TransformDirection() {}
-		void TransformPoint() {}
-		void TransformVector() {}
-		void Translate() {}
+		void DetachChildren() { TODO }
+		void Find() { TODO }
+		void GetChild() { TODO }
+		void GetSiblingIndex() { TODO }
+		void InverseTransformDirection() { TODO }
+		void InverseTransformPoint() { TODO }
+		void InverseTransformVector() { TODO }
+		void IsChildOf() { TODO }
+		void LookAt() { TODO }
+		void Rotate() { TODO }
+		void RotateAround() { TODO }
+		void SetAsFirstSibling() { TODO }
+		void SetAsLastSibling() { TODO }
+		void SetParent() { TODO }
+		void SetPositionAndRotation() { TODO }
+		void SetSiblingIndex() { TODO }
+		void TransformDirection() { TODO }
+		void TransformPoint() { TODO }
+		void TransformVector() { TODO }
+		void Translate() { TODO }
 	};
+	static Object* Instantiate(const Object& original, Transform* parent)
+	{
+		Object* newObject = new Object(original);
+		dynamic_cast<Object>()
+		
+	}
 
 
 	// todo
@@ -681,11 +892,11 @@ namespace Engine
 		RW(Foo,Bar) int rect;
 		RW(Foo,Bar) int sizeDelta;
 
-		void ForceUpdateRectTransforms() {}
-		void GetLocalCorners() {}
-		void GetWorldCorners() {}
-		void SetInsetAndSizeFromParentEdge() {}
-		void SetSizeWithCurrentAnchors() {}
+		void ForceUpdateRectTransforms() { TODO }
+		void GetLocalCorners() { TODO }
+		void GetWorldCorners() { TODO }
+		void SetInsetAndSizeFromParentEdge() { TODO }
+		void SetSizeWithCurrentAnchors() { TODO }
 
 		// Event: reapplyDrivenProperties
 		// Delegate: ReapplyDrivenProperties
@@ -697,12 +908,12 @@ namespace Engine
 
 
 	public:
-		static void FlipLayoutAxes() {}
-		static void FlipLayoutOnAxes() {}
-		static void PixelAdjustPoint() {}
-		static void PixelAdjustRect() {}
-		static void RectangleContainsScreenPoint() {}
-		static void ScreenPointToLocalPointInRectangle() {}
-		static void ScreenPointToWorldPointInRectangle() {}
+		static void FlipLayoutAxes() { TODO }
+		static void FlipLayoutOnAxes() { TODO }
+		static void PixelAdjustPoint() { TODO }
+		static void PixelAdjustRect() { TODO }
+		static void RectangleContainsScreenPoint() { TODO }
+		static void ScreenPointToLocalPointInRectangle() { TODO }
+		static void ScreenPointToWorldPointInRectangle() { TODO }
 	};
 }

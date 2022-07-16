@@ -100,6 +100,7 @@
       <GenerateXMLDocumentationFiles>true</GenerateXMLDocumentationFiles>
       <BrowseInformation>true</BrowseInformation>
       <DisableSpecificWarnings>4300;4075</DisableSpecificWarnings>
+      <EnableModules>true</EnableModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -125,6 +126,7 @@
       <GenerateXMLDocumentationFiles>true</GenerateXMLDocumentationFiles>
       <BrowseInformation>true</BrowseInformation>
       <DisableSpecificWarnings>4300;4075</DisableSpecificWarnings>
+      <EnableModules>true</EnableModules>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -149,6 +151,7 @@
       <GenerateXMLDocumentationFiles>true</GenerateXMLDocumentationFiles>
       <BrowseInformation>true</BrowseInformation>
       <DisableSpecificWarnings>4300;4075</DisableSpecificWarnings>
+      <EnableModules>true</EnableModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -174,6 +177,7 @@
       <GenerateXMLDocumentationFiles>true</GenerateXMLDocumentationFiles>
       <BrowseInformation>true</BrowseInformation>
       <DisableSpecificWarnings>4300;4075</DisableSpecificWarnings>
+      <EnableModules>true</EnableModules>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -193,7 +197,7 @@
     <ClInclude Include="containers.h" />
     <ClInclude Include="Debug.h" />
     <ClInclude Include="EditorUI.h" />
-    <ClInclude Include="Types.h" />
+    <ClInclude Include="Engine.Core.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />

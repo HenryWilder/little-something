@@ -29,7 +29,7 @@
     <ClInclude Include="Debug.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Types.h">
+    <ClInclude Include="Engine.Core.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
