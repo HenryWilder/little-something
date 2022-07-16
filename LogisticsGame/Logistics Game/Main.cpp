@@ -39,6 +39,8 @@ struct ResourcePatch
 };
 std::vector<ResourcePatch> g_patches;
 
+std::atomic<bool> timeToGo = false;
+
 namespace WorldGen
 {
 	enum class WorldGenStage
@@ -65,22 +67,24 @@ namespace WorldGen
 		stage.store(WorldGenStage::AllocatingMemory);
 		stageProgress.store(0);
 
-		int metalPatches  = std::uniform_int_distribution<int>(20000, 25000)(generator);
-		int woodPatches   = std::uniform_int_distribution<int>(40000, 60000)(generator);
-		int waterPatches  = std::uniform_int_distribution<int>(9000, 12000)(generator);
+		int metalPatches  = std::uniform_int_distribution<int>(25000, 100000)(generator);
+		int woodPatches   = std::uniform_int_distribution<int>(25000, 100000)(generator);
+		int waterPatches  = std::uniform_int_distribution<int>(25000, 100000)(generator);
 
 		int totalPatches  = metalPatches + woodPatches + waterPatches;
 
 		int totalNodes = 0;
 		std::vector<int> patchSizes;
 		patchSizes.reserve(totalPatches);
-		std::uniform_int_distribution<int> patchSizeDistr(64, 128);
+		std::uniform_int_distribution<int> patchSizeDistr(128, 256);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
 			int size = patchSizeDistr(generator);
 			patchSizes.push_back(size);
 			totalNodes += size;
+
+			if (timeToGo) return;
 		}
 
 		stageProgress.store(0.125f);
@@ -114,6 +118,8 @@ namespace WorldGen
 			g_patches.emplace_back(ResourceNode{ pt, ty }, 0.0f, runningStart, end);
 			runningStart = end;
 			stageProgress.store((float)i / (float)totalPatches);
+
+			if (timeToGo) return;
 		}
 
 		stageProgress.store(1.0f);
@@ -142,6 +148,8 @@ namespace WorldGen
 
 				Vector2 pt = Vector2Add(thisPatch.base.pos, offset);
 				g_world.emplace_back(pt, thisPatch.base.type);
+
+				if (timeToGo) return;
 			}
 			stageProgress.store((float)i / (float)totalPatches);
 		}
@@ -182,6 +190,13 @@ int main()
 
 		while (WorldGen::stage != WorldGen::WorldGenStage::Complete)
 		{
+			if (WindowShouldClose())
+			{
+				timeToGo = true;
+				worldGen.join();
+				CloseWindow();
+				return 0;
+			}
 			BeginDrawing();
 			{
 				ClearBackground(BLACK);
@@ -191,9 +206,10 @@ int main()
 
 				const char* stageName = WorldGen::g_stageNames[(int)stage];
 				DrawText("Generating world", 4, 4, 8, WHITE);
-				DrawRectangle(4, 20, 100, 16, DARKGRAY);
-				DrawRectangle(4, 20, 100 * stageProgress, 16, BLUE);
 				DrawText(stageName, 4, 20, 8, LIGHTGRAY);
+				DrawRectangle(4, 36, 100, 16, DARKGRAY);
+				DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
+				DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 4, 36, 8, WHITE);
 			}
 			EndDrawing();
 		}
