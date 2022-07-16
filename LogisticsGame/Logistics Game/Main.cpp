@@ -79,8 +79,8 @@ namespace WorldGen
 
 		int metalPatches  = std::uniform_int_distribution<int>(10000,  50000)(generator);
 		int woodPatches   = std::uniform_int_distribution<int>(20000, 100000)(generator);
-		int waterPatches  = std::uniform_int_distribution<int>( 5000,  10000)(generator);
-		int energyPatches = std::uniform_int_distribution<int>( 1000,   5000)(generator);
+		int waterPatches  = std::uniform_int_distribution<int>(10000,  20000)(generator);
+		int energyPatches = std::uniform_int_distribution<int>( 5000,  10000)(generator);
 
 		int totalPatches  = metalPatches + woodPatches + waterPatches + energyPatches;
 
@@ -169,8 +169,6 @@ namespace WorldGen
 
 		stageProgress.store(1.0f);
 		stage.store(WorldGenStage::Complete);
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(1400)); // Let the user see the pretty map :>
 	}
 }
 
@@ -195,6 +193,7 @@ void DrawPatches(Rectangle cullingRect)
 
 int main()
 {
+	SetConfigFlags(ConfigFlags::FLAG_MSAA_4X_HINT);
 	InitWindow(1280, 720, "Logistics Game");
 	Rectangle cullingRect = { 0,0,1280,720 };
 	SetTargetFPS(60);
@@ -202,6 +201,8 @@ int main()
 	// World gen
 	{
 		std::thread worldGen(WorldGen::GenerateWorld);
+
+		Vector2 previewPanning = Vector2Zero();
 
 		while (WorldGen::stage != WorldGen::WorldGenStage::Complete)
 		{
@@ -214,10 +215,21 @@ int main()
 			}
 			BeginDrawing();
 			{
-				ClearBackground(BLACK);
-
 				WorldGen::WorldGenStage stage = WorldGen::stage.load();
 				float stageProgress = WorldGen::stageProgress.load();
+
+				ClearBackground(BLACK);
+
+				previewPanning.x += GetFrameTime() * -40.0f;
+				previewPanning.y += GetFrameTime() * -20.0f;
+
+				for (int i = 0; i < g_patches.size(); ++i)
+				{
+					const ResourcePatch& patch = g_patches[i];
+					Color color = patch.base.GetColor();
+					color.a = patch.end <= g_world.size() ? 255 : 63;
+					DrawPixelV(Vector2Scale(Vector2Add(patch.base.pos, previewPanning), 0.05f), color);
+				}
 
 				const char* stageName = WorldGen::g_stageNames[(int)stage];
 				DrawText("Generating world", 4, 4, 8, WHITE);
@@ -225,14 +237,7 @@ int main()
 				DrawRectangle(4, 36, 100, 16, DARKGRAY);
 				DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
 				DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
-
-				for (int i = 0; i < g_patches.size(); ++i)
-				{
-					const ResourcePatch& patch = g_patches[i];
-					Color color = patch.base.GetColor();
-					color.a = patch.end <= g_world.size() ? 255 : 63;
-					DrawPixelV(Vector2Scale(patch.base.pos, 0.05f), color);
-				}
+				DrawText(TextFormat("Total patches: %#5i\nTotal nodes: %#8i", g_patches.size(), g_world.size()), 4, 58, 8, LIGHTGRAY);
 			}
 			EndDrawing();
 		}
