@@ -12,6 +12,7 @@ enum class ResourceType : int
 	Metal = 1,
 	Wood = 2,
 	Water = 3,
+	Energy = 4,
 };
 constexpr Color g_resourceColors[] =
 {
@@ -19,6 +20,7 @@ constexpr Color g_resourceColors[] =
 	LIGHTGRAY, // Metal
 	BROWN,     // Wood
 	BLUE,      // Water
+	YELLOW,    // Energy
 };
 
 struct ResourceNode
@@ -30,6 +32,8 @@ struct ResourceNode
 	Color GetColor() const { return g_resourceColors[(int)type]; }
 };
 std::vector<ResourceNode> g_world;
+
+float g_nodeSpread = 2.0f;
 
 struct ResourcePatch
 {
@@ -47,14 +51,20 @@ namespace WorldGen
 	{
 		AllocatingMemory,
 		PlacingPatches,
-		GrowingNodes,
+		GrowingNodes_Metal,
+		GrowingNodes_Wood,
+		GrowingNodes_Water,
+		GrowingNodes_Energy,
 		Complete,
 	};
 	const char* g_stageNames[] =
 	{
 		"Allocating Memory",
-		"Placing Patches",
-		"Growing Nodes",
+		"Sewing seeds",
+		"Creating metal",
+		"Growing wood",
+		"Adding water",
+		"Generating energy",
 		"Complete",
 	};
 	std::atomic<WorldGenStage> stage = WorldGenStage::AllocatingMemory;
@@ -67,16 +77,17 @@ namespace WorldGen
 		stage.store(WorldGenStage::AllocatingMemory);
 		stageProgress.store(0);
 
-		int metalPatches  = std::uniform_int_distribution<int>(25000, 100000)(generator);
-		int woodPatches   = std::uniform_int_distribution<int>(25000, 100000)(generator);
-		int waterPatches  = std::uniform_int_distribution<int>(25000, 100000)(generator);
+		int metalPatches  = std::uniform_int_distribution<int>(10000,  50000)(generator);
+		int woodPatches   = std::uniform_int_distribution<int>(20000, 100000)(generator);
+		int waterPatches  = std::uniform_int_distribution<int>( 5000,  10000)(generator);
+		int energyPatches = std::uniform_int_distribution<int>( 1000,   5000)(generator);
 
-		int totalPatches  = metalPatches + woodPatches + waterPatches;
+		int totalPatches  = metalPatches + woodPatches + waterPatches + energyPatches;
 
 		int totalNodes = 0;
 		std::vector<int> patchSizes;
 		patchSizes.reserve(totalPatches);
-		std::uniform_int_distribution<int> patchSizeDistr(128, 256);
+		std::uniform_int_distribution<int> patchSizeDistr(200, 300);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
@@ -84,7 +95,7 @@ namespace WorldGen
 			patchSizes.push_back(size);
 			totalNodes += size;
 
-			if (timeToGo) return;
+			if (timeToGo) [[unlikely]] return;
 		}
 
 		stageProgress.store(0.125f);
@@ -96,44 +107,46 @@ namespace WorldGen
 		stage.store(WorldGenStage::PlacingPatches);
 		stageProgress.store(0.0f);
 
-		std::uniform_real_distribution<float> xPatchDistr(-100000, 100000);
-		std::uniform_real_distribution<float> yPatchDistr(-100000, 100000);
+		std::uniform_real_distribution<float> patchDistr(-30000, 30000);
 
 		int runningStart = 0;
 		for (int i = 0; i < totalPatches; ++i)
 		{
 			Vector2 pt =
 			{
-				xPatchDistr(generator),
-				yPatchDistr(generator)
+				patchDistr(generator),
+				patchDistr(generator)
 			};
 			ResourceType ty;
 			if (i < metalPatches)
 				ty = ResourceType::Metal;
 			else if (i < metalPatches + woodPatches)
 				ty = ResourceType::Wood;
-			else
+			else if (i < metalPatches + woodPatches + waterPatches)
 				ty = ResourceType::Water;
+			else
+				ty = ResourceType::Energy;
 			int end = runningStart + patchSizes[i];
 			g_patches.emplace_back(ResourceNode{ pt, ty }, 0.0f, runningStart, end);
 			runningStart = end;
 			stageProgress.store((float)i / (float)totalPatches);
 
-			if (timeToGo) return;
+			if (timeToGo) [[unlikely]] return;
 		}
 
 		stageProgress.store(1.0f);
-		stage.store(WorldGenStage::GrowingNodes);
+		stage.store(WorldGenStage::GrowingNodes_Metal);
 		stageProgress.store(0.0f);
 
-		float nodeSpread = 1.0f;
 		std::uniform_real_distribution<float> nodeAngleDistr(0.0f, 2 * PI);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
 			ResourcePatch& thisPatch = g_patches[i];
+			stage.store((WorldGenStage)((int)WorldGenStage::PlacingPatches + (int)thisPatch.base.type));
+
 			int thisPatchSize = patchSizes[i];
-			float patchRadius = sqrtf((float)thisPatchSize / PI) * nodeSpread;
+			float patchRadius = sqrtf((float)thisPatchSize / PI) * g_nodeSpread;
 			thisPatch.radius = patchRadius;
 			std::normal_distribution<float> nodeRadiusDistr(-patchRadius, patchRadius);
 			for (int i = 0; i < thisPatchSize; ++i)
@@ -149,13 +162,15 @@ namespace WorldGen
 				Vector2 pt = Vector2Add(thisPatch.base.pos, offset);
 				g_world.emplace_back(pt, thisPatch.base.type);
 
-				if (timeToGo) return;
+				if (timeToGo) [[unlikely]] return;
 			}
 			stageProgress.store((float)i / (float)totalPatches);
 		}
 
 		stageProgress.store(1.0f);
 		stage.store(WorldGenStage::Complete);
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1400)); // Let the user see the pretty map :>
 	}
 }
 
@@ -209,7 +224,15 @@ int main()
 				DrawText(stageName, 4, 20, 8, LIGHTGRAY);
 				DrawRectangle(4, 36, 100, 16, DARKGRAY);
 				DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
-				DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 4, 36, 8, WHITE);
+				DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
+
+				for (int i = 0; i < g_patches.size(); ++i)
+				{
+					const ResourcePatch& patch = g_patches[i];
+					Color color = patch.base.GetColor();
+					color.a = patch.end <= g_world.size() ? 255 : 63;
+					DrawPixelV(Vector2Scale(patch.base.pos, 0.05f), color);
+				}
 			}
 			EndDrawing();
 		}
