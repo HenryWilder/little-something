@@ -4,6 +4,14 @@
 #include <raylib.h>
 #include <raymath.h>
 
+Vector2 PointFromAngleAndDistance(float angle, float distance)
+{
+	return Vector2{
+		sin(angle) * distance,
+		cos(angle) * distance
+	};
+}
+
 constexpr float g_fixedTimeStep = 0.1f; // Ten Hz
 Camera2D g_playerCamera = { { 0,0 }, { 0,0 }, 0, 1 };
 
@@ -31,22 +39,31 @@ struct ResourceNode
 	ResourceType type;
 	Color GetColor() const { return g_resourceColors[(int)type]; }
 };
-std::vector<ResourceNode> g_world;
+using Nodes_t     = std::vector<ResourceNode>;
+using NodeIter_t  = Nodes_t::iterator;
+using NodeCIter_t = Nodes_t::const_iterator;
+Nodes_t g_world;
 
-float g_nodeSpread = 2.0f;
+float g_nodeSpread = 6.0f;
 
 struct ResourcePatch
 {
 	ResourceNode base;
 	float radius;
-	int start, end;
-};
-std::vector<ResourcePatch> g_patches;
+	int startNode, endNode;
 
-std::atomic<bool> timeToGo = false;
+	NodeCIter_t begin() const { return g_world.begin() + startNode; }
+	NodeCIter_t end()   const { return g_world.begin() + endNode; }
+};
+using Patches_t    = std::vector<ResourcePatch>;
+using PatchIter_t  = Patches_t::iterator;
+using PatchCIter_t = Patches_t::const_iterator;
+Patches_t g_patches;
 
 namespace WorldGen
 {
+	std::atomic<bool> timeToGo = false;
+
 	enum class WorldGenStage
 	{
 		AllocatingMemory,
@@ -70,6 +87,11 @@ namespace WorldGen
 	std::atomic<WorldGenStage> stage = WorldGenStage::AllocatingMemory;
 	std::atomic<float> stageProgress = 0.0f;
 
+	std::uniform_int_distribution<int> UniformIntDistrFromCenterAndExtent(int center, int extent)
+	{
+		return std::uniform_int_distribution(center - extent, center + extent);
+	}
+
 	void GenerateWorld()
 	{
 		std::default_random_engine generator;
@@ -77,17 +99,17 @@ namespace WorldGen
 		stage.store(WorldGenStage::AllocatingMemory);
 		stageProgress.store(0);
 
-		int metalPatches  = std::uniform_int_distribution<int>(10000,  50000)(generator);
-		int woodPatches   = std::uniform_int_distribution<int>(20000, 100000)(generator);
-		int waterPatches  = std::uniform_int_distribution<int>(10000,  20000)(generator);
-		int energyPatches = std::uniform_int_distribution<int>( 5000,  10000)(generator);
+		int metalPatches  = UniformIntDistrFromCenterAndExtent(25000, 5000)(generator);
+		int woodPatches   = UniformIntDistrFromCenterAndExtent(50000, 5000)(generator);
+		int waterPatches  = UniformIntDistrFromCenterAndExtent(15000, 5000)(generator);
+		int energyPatches = UniformIntDistrFromCenterAndExtent(10000, 5000)(generator);
 
 		int totalPatches  = metalPatches + woodPatches + waterPatches + energyPatches;
 
 		int totalNodes = 0;
 		std::vector<int> patchSizes;
 		patchSizes.reserve(totalPatches);
-		std::uniform_int_distribution<int> patchSizeDistr(200, 300);
+		auto patchSizeDistr = UniformIntDistrFromCenterAndExtent(250, 50);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
@@ -148,17 +170,12 @@ namespace WorldGen
 			int thisPatchSize = patchSizes[i];
 			float patchRadius = sqrtf((float)thisPatchSize / PI) * g_nodeSpread;
 			thisPatch.radius = patchRadius;
-			std::normal_distribution<float> nodeRadiusDistr(-patchRadius, patchRadius);
+			std::normal_distribution<float> nodeRadiusDistr(0.0f, patchRadius / 6.0f);
 			for (int i = 0; i < thisPatchSize; ++i)
 			{
 				float angle = nodeAngleDistr(generator);
 				float length = nodeRadiusDistr(generator);
-				Vector2 offset =
-				{
-					sin(angle) * length,
-					cos(angle) * length
-				};
-
+				Vector2 offset = PointFromAngleAndDistance(angle, length);
 				Vector2 pt = Vector2Add(thisPatch.base.pos, offset);
 				g_world.emplace_back(pt, thisPatch.base.type);
 
@@ -174,17 +191,15 @@ namespace WorldGen
 
 void DrawPatches(Rectangle cullingRect)
 {
-	for (int i = 0; i < g_patches.size(); ++i)
+	for (ResourcePatch patch : g_patches)
 	{
-		ResourcePatch patch = g_patches[i];
-		if (!CheckCollisionCircleRec(patch.base.pos, patch.radius, cullingRect))
-			continue;
+		bool patchOnScreen = CheckCollisionCircleRec(patch.base.pos, patch.radius, cullingRect);
+		if (!patchOnScreen) continue;
 
-		for (int j = g_patches[i].start; j < g_patches[i].end; ++j)
+		for (ResourceNode node : patch)
 		{
-			ResourceNode node = g_world[j];
-			if (!CheckCollisionPointRec(node.pos, cullingRect))
-				continue;
+			bool nodeOnScreen = CheckCollisionPointRec(node.pos, cullingRect);
+			if (!nodeOnScreen) continue;
 
 			DrawRectangleV(node.pos, node.sizev, node.GetColor());
 		}
@@ -208,7 +223,7 @@ int main()
 		{
 			if (WindowShouldClose())
 			{
-				timeToGo = true;
+				WorldGen::timeToGo = true;
 				worldGen.join();
 				CloseWindow();
 				return 0;
@@ -227,7 +242,7 @@ int main()
 				{
 					const ResourcePatch& patch = g_patches[i];
 					Color color = patch.base.GetColor();
-					color.a = patch.end <= g_world.size() ? 255 : 63;
+					color.a = patch.endNode <= g_world.size() ? 255 : 63;
 					DrawPixelV(Vector2Scale(Vector2Add(patch.base.pos, previewPanning), 0.05f), color);
 				}
 
@@ -296,7 +311,7 @@ int main()
 
 			DrawTextureRec(nanite.texture, { 0,0,1280,-720 }, { 0,0 }, WHITE);
 
-			int width = MeasureText("999 FPS", 20);
+			int width = MeasureText(TextFormat("%2i FPS", GetFPS()), 20);
 			DrawRectangle(2,2, width, 20, RAYWHITE);
 			DrawFPS(2,2);
 		}
