@@ -198,15 +198,24 @@ namespace WorldGen
 				patchDistr(generator)
 			};
 			ResourceType ty;
+#if _DEBUG
+			bool initializedType = false;
+#endif
 			for (int j = 0; j < g_resourceTypes; ++j)
 			{
 				if (i < patchEndIndices[j])
 				{
 					_ASSERT_EXPR(j >= 0 && j < g_resourceTypes, L"Resource must be a valid ResourceType");
+#if _DEBUG
+					initializedType = true;
+#endif
 					ty = (ResourceType)j;
 					break;
 				}
 			}
+#if _DEBUG
+			_ASSERT_EXPR(initializedType, L"Resource type was not initialized");
+#endif
 			int end = runningStart + patchSizes[i];
 			g_patches.emplace_back(ResourceNode{ pt, ty }, 0.0f, runningStart, end);
 			runningStart = end;
