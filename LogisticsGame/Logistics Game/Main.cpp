@@ -28,19 +28,35 @@ Vector2 GetWorldPosition(Vector2 pt)
 
 enum class ResourceType : int
 {
-	Metal = 1,
-	Wood = 2,
-	Water = 3,
-	Energy = 4,
+	Metal,
+	Wood,
+	Water,
+	Energy,
+	_TypeCount, // Not an actual type
 };
 constexpr Color g_resourceColors[] =
 {
-	BLACK,     // null
 	LIGHTGRAY, // Metal
 	BROWN,     // Wood
 	BLUE,      // Water
 	YELLOW,    // Energy
 };
+constexpr const char* ResourceTypeNameFromIndex(int typeIndex)
+{
+	constexpr const char* names[]
+	{
+		"Metal",
+		"Wood",
+		"Water",
+		"Energy",
+	};
+	return names[typeIndex];
+}
+inline constexpr const char* ResourceTypeName(ResourceType type)
+{
+	return ResourceTypeNameFromIndex((int)type);
+}
+constexpr int g_resourceTypes = (int)ResourceType::_TypeCount;
 
 struct ResourceNode
 {
@@ -121,7 +137,7 @@ namespace WorldGen
 
 	std::uniform_int_distribution<int> UniformIntDistrFromCenterAndExtent(int center, int extent)
 	{
-		return std::uniform_int_distribution(center - extent, center + extent);
+		return std::uniform_int_distribution<int>(center - extent, center + extent);
 	}
 
 	float g_worldExtent = 30000;
@@ -133,12 +149,20 @@ namespace WorldGen
 		stage.store(WorldGenStage::AllocatingMemory);
 		stageProgress.store(0);
 
-		int metalPatches  = UniformIntDistrFromCenterAndExtent(25000, 5000)(generator);
-		int woodPatches   = UniformIntDistrFromCenterAndExtent(50000, 5000)(generator);
-		int waterPatches  = UniformIntDistrFromCenterAndExtent(15000, 5000)(generator);
-		int energyPatches = UniformIntDistrFromCenterAndExtent(10000, 5000)(generator);
-
-		int totalPatches  = metalPatches + woodPatches + waterPatches + energyPatches;
+		int patchCounts[g_resourceTypes]
+		{
+			UniformIntDistrFromCenterAndExtent(25000, 5000)(generator), // Metal
+			UniformIntDistrFromCenterAndExtent(50000, 5000)(generator), // Wood
+			UniformIntDistrFromCenterAndExtent(15000, 5000)(generator), // Water
+			UniformIntDistrFromCenterAndExtent(10000, 5000)(generator), // Energy
+		};
+		int patchEndIndices[g_resourceTypes]{};
+		patchEndIndices[0] = patchCounts[0];
+		for (int i = 1; i < g_resourceTypes; ++i)
+		{
+			patchEndIndices[i] = patchEndIndices[i - 1] + patchCounts[i];
+		}
+		int totalPatches = patchEndIndices[g_resourceTypes - 1];
 
 		int totalNodes = 0;
 		std::vector<int> patchSizes;
@@ -174,14 +198,15 @@ namespace WorldGen
 				patchDistr(generator)
 			};
 			ResourceType ty;
-			if (i < metalPatches)
-				ty = ResourceType::Metal;
-			else if (i < metalPatches + woodPatches)
-				ty = ResourceType::Wood;
-			else if (i < metalPatches + woodPatches + waterPatches)
-				ty = ResourceType::Water;
-			else
-				ty = ResourceType::Energy;
+			for (int j = 0; j < g_resourceTypes; ++j)
+			{
+				if (i < patchEndIndices[j])
+				{
+					_ASSERT_EXPR(j >= 0 && j < g_resourceTypes, L"Resource must be a valid ResourceType");
+					ty = (ResourceType)j;
+					break;
+				}
+			}
 			int end = runningStart + patchSizes[i];
 			g_patches.emplace_back(ResourceNode{ pt, ty }, 0.0f, runningStart, end);
 			runningStart = end;
@@ -194,7 +219,7 @@ namespace WorldGen
 		stage.store(WorldGenStage::GrowingNodes_Metal);
 		stageProgress.store(0.0f);
 
-		std::uniform_real_distribution<float> nodeAngleDistr(0.0f, 2 * PI);
+		std::uniform_real_distribution<float> nodeAngleDistr(0.0f, 2.0f * PI);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
@@ -309,10 +334,7 @@ void GenerateWorld()
 	worldGen.join();
 }
 
-int g_metal = 0;
-int g_wood = 0;
-int g_water = 0;
-int g_energy = 0;
+int g_itemCounts[g_resourceTypes];
 
 struct SuccEffect
 {
@@ -327,7 +349,7 @@ std::queue<SuccEffect> effects;
 void SpawnSuccEffect(Vector2 at)
 {
 	static std::default_random_engine g;
-	std::uniform_real_distribution distr(127, 255);
+	std::uniform_int_distribution distr(127, 255);
 	Color color{ distr(g),distr(g),distr(g),127 };
 	effects.emplace(at, GetTime(), 2.0f, color);
 }
@@ -366,21 +388,11 @@ void TryFixedUpdate()
 		{
 			node->beingInhaled = false;
 			node->visible = false;
-			switch (node->type)
-			{
-			case ResourceType::Metal:  ++g_metal;  break;
-			case ResourceType::Wood:   ++g_wood;   break;
-			case ResourceType::Water:  ++g_water;  break;
-			case ResourceType::Energy: ++g_energy; break;
-			}
+			++g_itemCounts[(int)node->type];
 		}
 	}
 
-	for (int i = g_inhaling.size() - 1; i >= 0; --i)
-	{
-		if (g_inhaling[i]->beingInhaled == false)
-			g_inhaling.erase(g_inhaling.begin() + i);
-	}
+	std::erase_if(g_inhaling, [](const ResourceNode* node) { return !node->beingInhaled; });
 
 	ForEachVisiblePatch(ResourcePatch::UpdateEmpty);
 }
@@ -419,7 +431,10 @@ void DrawFrame()
 	EndBlendMode();
 	EndMode2D();
 
-	DrawText(TextFormat("Metal: %i\nWood: %i\nWater: %i\nEnergy: %i", g_metal, g_wood, g_water, g_energy), 2, 28, 20, BLACK);
+	for (int i = 0; i < g_resourceTypes; ++i)
+	{
+		DrawText(TextFormat("%s: %i", ResourceTypeNameFromIndex(i), g_itemCounts[i]), 2, 28 + 20 * i, 20, g_resourceColors[i]);
+	}
 
 	// FPS counter
 	{
@@ -448,7 +463,7 @@ int main()
 {
 	SetConfigFlags(ConfigFlags::FLAG_MSAA_4X_HINT | ConfigFlags::FLAG_WINDOW_RESIZABLE);
 	InitWindow(1280, 720, "Logistics Game");
-	//SetTargetFPS(60);
+	SetTargetFPS(60);
 
 	GenerateWorld();
 
