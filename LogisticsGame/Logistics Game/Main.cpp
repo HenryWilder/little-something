@@ -1,4 +1,5 @@
 #include <vector>
+#include <queue>
 #include <random>
 #include <thread>
 #include <raylib.h>
@@ -315,8 +316,21 @@ int g_energy = 0;
 
 struct SuccEffect
 {
-
+	static constexpr float lifetime = 0.75f;
+	Vector2 position;
+	float birthDate;
+	float radius;
+	Color color;
 };
+std::queue<SuccEffect> effects;
+
+void SpawnSuccEffect(Vector2 at)
+{
+	static std::default_random_engine g;
+	std::uniform_real_distribution distr(127, 255);
+	Color color{ distr(g),distr(g),distr(g),127 };
+	effects.emplace(at, GetTime(), 2.0f, color);
+}
 
 std::vector<ResourceNode*> g_inhaling;
 Vector2 g_collectionPos = Vector2Zero();
