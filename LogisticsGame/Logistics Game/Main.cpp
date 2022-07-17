@@ -1,3 +1,4 @@
+#include <fstream>
 #include <vector>
 #include <random>
 #include <thread>
@@ -35,9 +36,14 @@ struct ResourceNode
 {
 	static constexpr float sizef = 2;
 	static constexpr Vector2 sizev = { sizef,sizef };
+
 	Vector2 pos;
 	ResourceType type;
+	bool visible = true;
+
 	Color GetColor() const { return g_resourceColors[(int)type]; }
+	bool OnScreen(Rectangle screenRect) const { return visible && CheckCollisionPointRec(pos, screenRect); }
+	static void Draw(const ResourceNode& node) { DrawRectangleV(node.pos, node.sizev, node.GetColor()); }
 };
 using Nodes_t     = std::vector<ResourceNode>;
 using NodeIter_t  = Nodes_t::iterator;
@@ -51,9 +57,25 @@ struct ResourcePatch
 	ResourceNode base;
 	float radius;
 	int startNode, endNode;
+	bool empty = false; // Todo: Don't serialize if empty
 
-	NodeCIter_t begin() const { return g_world.begin() + startNode; }
-	NodeCIter_t end()   const { return g_world.begin() + endNode; }
+	bool OnScreen(Rectangle screenRect) const { return !empty && CheckCollisionCircleRec(base.pos, radius, screenRect); }
+
+	NodeIter_t begin() const { return g_world.begin() + startNode; }
+	NodeCIter_t end()  const { return g_world.begin() + endNode; }
+
+	static void UpdateDepletion(ResourcePatch& patch)
+	{
+		patch.empty = true;
+		for (const ResourceNode& node : patch)
+		{
+			if (node.visible)
+			{
+				patch.empty = false;
+				break;
+			}
+		}
+	}
 };
 using Patches_t    = std::vector<ResourcePatch>;
 using PatchIter_t  = Patches_t::iterator;
@@ -189,19 +211,64 @@ namespace WorldGen
 	}
 }
 
-void DrawPatches(Rectangle cullingRect)
+template<class _Pred>
+void ForEachVisiblePatch(Rectangle screenRect, _Pred f)
+requires(std::is_invocable_v<_Pred>)
 {
-	for (ResourcePatch patch : g_patches)
+	for (ResourcePatch& patch : g_patches)
+		if (patch.OnScreen(screenRect))
+			f();
+}
+template<class _Pred>
+void ForEachVisiblePatch(Rectangle screenRect, _Pred f)
+requires(std::is_invocable_v<_Pred, ResourcePatch&>)
+{
+	for (ResourcePatch& patch : g_patches)
+		if (patch.OnScreen(screenRect))
+			f(patch);
+}
+template<class _Pred>
+void ForEachVisibleNode(Rectangle screenRect, _Pred f)
+requires(std::is_invocable_v<_Pred>)
+{
+	for (ResourcePatch& patch : g_patches)
 	{
-		bool patchOnScreen = CheckCollisionCircleRec(patch.base.pos, patch.radius, cullingRect);
-		if (!patchOnScreen) continue;
+		if (!patch.OnScreen(screenRect)) continue;
 
-		for (ResourceNode node : patch)
+		for (ResourceNode& node : patch)
 		{
-			bool nodeOnScreen = CheckCollisionPointRec(node.pos, cullingRect);
-			if (!nodeOnScreen) continue;
+			if (node.OnScreen(screenRect))
+				f();
+		}
+	}
+}
+template<class _Pred>
+void ForEachVisibleNode(Rectangle screenRect, _Pred f)
+requires(std::is_invocable_v<_Pred, ResourceNode&>)
+{
+	for (ResourcePatch& patch : g_patches)
+	{
+		if (!patch.OnScreen(screenRect)) continue;
 
-			DrawRectangleV(node.pos, node.sizev, node.GetColor());
+		for (ResourceNode& node : patch)
+		{
+			if (node.OnScreen(screenRect))
+				f(node);
+		}
+	}
+}
+template<class _Pred>
+void ForEachVisibleNode(Rectangle screenRect, _Pred f)
+requires(std::is_invocable_v<_Pred, ResourcePatch&, ResourceNode&>)
+{
+	for (ResourcePatch& patch : g_patches)
+	{
+		if (!patch.OnScreen(screenRect)) continue;
+
+		for (ResourceNode& node : patch)
+		{
+			if (node.OnScreen(screenRect))
+				f(patch, node);
 		}
 	}
 }
@@ -259,19 +326,35 @@ int main()
 		worldGen.join();
 	}
 
-	RenderTexture nanite = LoadRenderTexture(1280, 720);
+	Shader nodeShader = LoadShader("Nodes.vert", "Nodes.frag");
+	SetShader
+
+	Image nanite = GenImageColor(1280, 720, { 0,0,0,0 });
+	Texture2D naniteBuffer = LoadTextureFromImage(nanite);
 	float lastFixedUpdate = -INFINITY;
+	float collectionRange = 7.0f;
+
+	std::vector<Vector2> nodeClearBuffer; // Positions of all nodes the last time nanite was redrawn
 
 	auto RefreshResourceTexture = [&]()
 	{
-		BeginTextureMode(nanite);
+		for (Vector2 pt : nodeClearBuffer)
 		{
-			ClearBackground({ 0,0,0,0 });
-			BeginMode2D(g_playerCamera);
-			DrawPatches(cullingRect);
-			EndMode2D();
+			int index = ((int)pt.y * nanite.width + (int)pt.x) * 4;
+			((unsigned char*)nanite.data)[index + 3] = 0; // Set alpha to 0
 		}
-		EndTextureMode();
+		nodeClearBuffer.clear();
+		size_t nodeCount = 0;
+		ForEachVisibleNode(cullingRect, [&nodeCount]() { ++nodeCount; });
+		nodeClearBuffer.reserve(nodeCount);
+		auto DrawNodeToNanite = [&nanite, &nodeClearBuffer](const ResourceNode& node)
+		{
+			Vector2 pt = GetWorldToScreen2D(node.pos, g_playerCamera);
+			nodeClearBuffer.push_back(pt);
+			ImageDrawPixelV(&nanite, pt, node.GetColor());
+		};
+		ForEachVisibleNode(cullingRect, DrawNodeToNanite);
+		UpdateTexture(naniteBuffer, nanite.data);
 	};
 
 	RefreshResourceTexture();
@@ -280,25 +363,38 @@ int main()
 	{
 		float now = GetTime();
 
+		bool worldDirty = false;
+
+		Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), g_playerCamera);
+
 		// Fixed Update (every g_fixedTimeStep)
-		if ((lastFixedUpdate - now) >= g_fixedTimeStep)
+		if ((now - lastFixedUpdate) >= g_fixedTimeStep)
 		{
 			lastFixedUpdate = now;
 
-			// todo
+			ForEachVisiblePatch(cullingRect, ResourcePatch::UpdateDepletion);
 		}
 
 		// Update (every frame)
 		{
-			bool worldDirty = false;
 			if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 			{
 				g_playerCamera.offset = Vector2Add(g_playerCamera.offset, GetMouseDelta());
+				cullingRect.x = -g_playerCamera.offset.x;
+				cullingRect.y = -g_playerCamera.offset.y;
 				worldDirty = true;
 			}
 
-			cullingRect.x = -g_playerCamera.offset.x;
-			cullingRect.y = -g_playerCamera.offset.y;
+			if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+			{
+				auto CollectNode = [&collectionRange, &mouseWorldPos](ResourceNode& node)
+				{
+					if (CheckCollisionPointCircle(node.pos, mouseWorldPos, collectionRange))
+						node.visible = false;
+				};
+				ForEachVisibleNode(cullingRect, CollectNode);
+				worldDirty = true;
+			}
 
 			if (worldDirty)
 				RefreshResourceTexture();
@@ -307,18 +403,36 @@ int main()
 		// Frame
 		BeginDrawing();
 		{
-			ClearBackground(RAYWHITE);
+			ClearBackground(LIGHTGRAY);
 
-			DrawTextureRec(nanite.texture, { 0,0,1280,-720 }, { 0,0 }, WHITE);
+			DrawTextureRec(naniteBuffer, { 0,0,1280,720 }, { 0,0 }, WHITE);
 
-			int width = MeasureText(TextFormat("%2i FPS", GetFPS()), 20);
-			DrawRectangle(2,2, width, 20, RAYWHITE);
-			DrawFPS(2,2);
+			BeginMode2D(g_playerCamera);
+			BeginBlendMode(BLEND_ADDITIVE);
+			DrawRing(mouseWorldPos, collectionRange - 4, collectionRange, 0, 360, 36, GRAY);
+			EndBlendMode();
+			EndMode2D();
+
+			{
+				int visiblePatches = 0;
+				int visibleNodes = 0;
+				ForEachVisiblePatch(cullingRect, [&visiblePatches](){ ++visiblePatches; });
+				ForEachVisibleNode(cullingRect, [&visibleNodes]() { ++visibleNodes; });
+				DrawText(TextFormat("Visible patches: %i\nVisible nodes: %i", visiblePatches, visibleNodes), 2, 42, 8, MAGENTA);
+			}
+
+			// FPS
+			{
+				int width = MeasureText(TextFormat("%2i FPS", GetFPS()), 20);
+				DrawRectangle(2, 2, width, 20, RAYWHITE);
+				DrawFPS(2, 2);
+			}
 		}
 		EndDrawing();
 	}
 
-	UnloadRenderTexture(nanite);
+	UnloadTexture(naniteBuffer);
+	UnloadImage(nanite);
 
 	CloseWindow();
 
