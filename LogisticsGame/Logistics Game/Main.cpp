@@ -5,7 +5,7 @@
 #include <raylib.h>
 #include <raymath.h>
 
-using uniform_byte_t  = std::uniform_int_distribution<unsigned char>;
+using byte = unsigned char;
 using uniform_int_t   = std::uniform_int_distribution<int>;
 using uniform_float_t = std::uniform_real_distribution<float>;
 using normal_float_t  = std::normal_distribution<float>;
@@ -26,11 +26,11 @@ Vector2 PointFromAngleAndDistance(float angle, float distance)
 
 Color UniformColor(Color colorMin, Color colorMax, std::default_random_engine& gen)
 {
-	uniform_byte_t r(colorMin.r, colorMax.r);
-	uniform_byte_t g(colorMin.g, colorMax.g);
-	uniform_byte_t b(colorMin.b, colorMax.b);
-	uniform_byte_t a(colorMin.a, colorMax.a);
-	return { r(gen),b(gen),g(gen),a(gen) };
+	uniform_int_t r(colorMin.r, colorMax.r);
+	uniform_int_t g(colorMin.g, colorMax.g);
+	uniform_int_t b(colorMin.b, colorMax.b);
+	uniform_int_t a(colorMin.a, colorMax.a);
+	return { (byte)r(gen), (byte)b(gen), (byte)g(gen), (byte)a(gen) };
 }
 Vector2 UniformVector2(float radius, random_engine& g)
 {
@@ -378,7 +378,7 @@ struct SuccEffect
 	float radius;
 	float growthRate;
 	Color color;
-};
+}; 
 std::deque<SuccEffect> effects;
 
 void SpawnSuccEffect(Vector2 pos, Color color)
