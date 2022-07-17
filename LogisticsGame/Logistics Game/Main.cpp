@@ -228,6 +228,14 @@ requires(std::is_invocable_v<Callable, ResourceNode&>)
 	}
 }
 
+void UpdateScreenRect()
+{
+	g_screenRect.x = -g_playerCamera.offset.x;
+	g_screenRect.y = -g_playerCamera.offset.y;
+	g_screenRect.width = GetScreenWidth();
+	g_screenRect.height = GetScreenHeight();
+}
+
 void GenerateWorld()
 {
 	std::thread worldGen(WorldGen::GenerateWorld);
@@ -243,32 +251,36 @@ void GenerateWorld()
 			CloseWindow();
 			return;
 		}
+
+		UpdateScreenRect();
+		Camera2D loadingScreenCam{ {0,0}, {0,0}, 0.0f, 0.075f };
+
 		BeginDrawing();
+		WorldGen::WorldGenStage stage = WorldGen::stage.load();
+		float stageProgress = WorldGen::stageProgress.load();
+
+		ClearBackground(BLACK);
+
+		loadingScreenCam.offset.x += GetFrameTime() * -40.0f;
+		loadingScreenCam.offset.y += GetFrameTime() * -20.0f;
+
+		BeginMode2D(loadingScreenCam);
+		for (int i = 0; i < g_patches.size(); ++i)
 		{
-			WorldGen::WorldGenStage stage = WorldGen::stage.load();
-			float stageProgress = WorldGen::stageProgress.load();
-
-			ClearBackground(BLACK);
-
-			previewPanning.x += GetFrameTime() * -40.0f;
-			previewPanning.y += GetFrameTime() * -20.0f;
-
-			for (int i = 0; i < g_patches.size(); ++i)
-			{
-				const ResourcePatch& patch = g_patches[i];
-				Color color = patch.base.GetColor();
-				color.a = patch.endNode <= g_world.size() ? 255 : 63;
-				DrawPixelV(Vector2Scale(Vector2Add(patch.base.pos, previewPanning), 0.05f), color);
-			}
-
-			const char* stageName = WorldGen::g_stageNames[(int)stage];
-			DrawText("Generating world", 4, 4, 8, WHITE);
-			DrawText(stageName, 4, 20, 8, LIGHTGRAY);
-			DrawRectangle(4, 36, 100, 16, DARKGRAY);
-			DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
-			DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
-			DrawText(TextFormat("Total patches: %#5i\nTotal nodes: %#8i", g_patches.size(), g_world.size()), 4, 58, 8, LIGHTGRAY);
+			const ResourcePatch& patch = g_patches[i];
+			Color color = patch.base.GetColor();
+			color.a = patch.endNode <= g_world.size() ? 255 : 63;
+			DrawPixelV(patch.base.pos, color);
 		}
+		EndMode2D();
+
+		const char* stageName = WorldGen::g_stageNames[(int)stage];
+		DrawText("Generating world", 4, 4, 8, WHITE);
+		DrawText(stageName, 4, 20, 8, LIGHTGRAY);
+		DrawRectangle(4, 36, 100, 16, DARKGRAY);
+		DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
+		DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
+		DrawText(TextFormat("Total patches: %#5i\nTotal nodes: %#8i", g_patches.size(), g_world.size()), 4, 58, 8, LIGHTGRAY);
 		EndDrawing();
 	}
 	worldGen.join();
@@ -298,8 +310,7 @@ void Update()
 		g_playerCamera.offset = Vector2Add(g_playerCamera.offset, GetMouseDelta());
 	}
 
-	g_screenRect.x = -g_playerCamera.offset.x;
-	g_screenRect.y = -g_playerCamera.offset.y;
+	UpdateScreenRect();
 }
 
 int g_windowWidth = 1280;
