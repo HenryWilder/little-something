@@ -397,7 +397,8 @@ void Update()
 		if (node->visible)
 		{
 			float distance = Vector2Distance(node->pos, g_collectionPos);
-			node->pos = Vector2MoveTowards(node->pos, g_collectionPos, (distance + std::max((g_collectionRadius * 5) - distance, 15.0f)) * GetFrameTime());
+			float speed = (distance + std::max((g_collectionRadius * 5) - distance, 15.0f));
+			node->pos = Vector2MoveTowards(node->pos, g_collectionPos, speed * GetFrameTime());
 		}
 	}
 
