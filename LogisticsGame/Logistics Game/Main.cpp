@@ -14,6 +14,11 @@ Vector2 PointFromAngleAndDistance(float angle, float distance)
 
 constexpr float g_fixedTimeStep = 0.1f; // Ten Hz
 Camera2D g_playerCamera = { { 0,0 }, { 0,0 }, 0, 1 };
+Rectangle g_screenRect = { 0,0,1280,720 };
+Vector2 GetWorldPosition(Vector2 pt)
+{
+	return GetScreenToWorld2D(pt, g_playerCamera);
+}
 
 enum class ResourceType : int
 {
@@ -35,9 +40,14 @@ struct ResourceNode
 {
 	static constexpr float sizef = 2;
 	static constexpr Vector2 sizev = { sizef,sizef };
+
 	Vector2 pos;
 	ResourceType type;
+	bool visible = true;
+
 	Color GetColor() const { return g_resourceColors[(int)type]; }
+	bool OnScreen() const { return visible && CheckCollisionPointRec(pos, g_screenRect); }
+	static void Draw(const ResourceNode& node) { DrawRectangleV(node.pos, node.sizev, node.GetColor()); }
 };
 using Nodes_t     = std::vector<ResourceNode>;
 using NodeIter_t  = Nodes_t::iterator;
@@ -51,9 +61,12 @@ struct ResourcePatch
 	ResourceNode base;
 	float radius;
 	int startNode, endNode;
+	bool empty = false;
 
-	NodeCIter_t begin() const { return g_world.begin() + startNode; }
-	NodeCIter_t end()   const { return g_world.begin() + endNode; }
+	bool OnScreen() const { return !empty && CheckCollisionCircleRec(base.pos, radius, g_screenRect); }
+
+	NodeIter_t begin() const { return g_world.begin() + startNode; }
+	NodeCIter_t end()  const { return g_world.begin() + endNode; }
 };
 using Patches_t    = std::vector<ResourcePatch>;
 using PatchIter_t  = Patches_t::iterator;
@@ -189,136 +202,147 @@ namespace WorldGen
 	}
 }
 
-void DrawPatches(Rectangle cullingRect)
+template<class Callable>
+void ForEachVisiblePatch(Callable _Pred)
+requires(std::is_invocable_v<Callable, ResourcePatch&>)
 {
-	for (ResourcePatch patch : g_patches)
+	for (ResourcePatch& patch : g_patches)
 	{
-		bool patchOnScreen = CheckCollisionCircleRec(patch.base.pos, patch.radius, cullingRect);
-		if (!patchOnScreen) continue;
+		if (patch.OnScreen())
+			_Pred(patch);
+	}
+}
+template<class Callable>
+void ForEachVisibleNode(Callable _Pred)
+requires(std::is_invocable_v<Callable, ResourceNode&>)
+{
+	for (ResourcePatch& patch : g_patches)
+	{
+		if (!patch.OnScreen()) continue;
 
-		for (ResourceNode node : patch)
+		for (ResourceNode& node : patch)
 		{
-			bool nodeOnScreen = CheckCollisionPointRec(node.pos, cullingRect);
-			if (!nodeOnScreen) continue;
-
-			DrawRectangleV(node.pos, node.sizev, node.GetColor());
+			if (node.OnScreen())
+				_Pred(node);
 		}
+	}
+}
+
+void GenerateWorld()
+{
+	std::thread worldGen(WorldGen::GenerateWorld);
+
+	Vector2 previewPanning = Vector2Zero();
+
+	while (WorldGen::stage != WorldGen::WorldGenStage::Complete)
+	{
+		if (WindowShouldClose())
+		{
+			WorldGen::timeToGo = true;
+			worldGen.join();
+			CloseWindow();
+			return;
+		}
+		BeginDrawing();
+		{
+			WorldGen::WorldGenStage stage = WorldGen::stage.load();
+			float stageProgress = WorldGen::stageProgress.load();
+
+			ClearBackground(BLACK);
+
+			previewPanning.x += GetFrameTime() * -40.0f;
+			previewPanning.y += GetFrameTime() * -20.0f;
+
+			for (int i = 0; i < g_patches.size(); ++i)
+			{
+				const ResourcePatch& patch = g_patches[i];
+				Color color = patch.base.GetColor();
+				color.a = patch.endNode <= g_world.size() ? 255 : 63;
+				DrawPixelV(Vector2Scale(Vector2Add(patch.base.pos, previewPanning), 0.05f), color);
+			}
+
+			const char* stageName = WorldGen::g_stageNames[(int)stage];
+			DrawText("Generating world", 4, 4, 8, WHITE);
+			DrawText(stageName, 4, 20, 8, LIGHTGRAY);
+			DrawRectangle(4, 36, 100, 16, DARKGRAY);
+			DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
+			DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
+			DrawText(TextFormat("Total patches: %#5i\nTotal nodes: %#8i", g_patches.size(), g_world.size()), 4, 58, 8, LIGHTGRAY);
+		}
+		EndDrawing();
+	}
+	worldGen.join();
+}
+
+float g_lastFixedUpdate = -INFINITY;
+// Every g_fixedTimeStep
+void TryFixedUpdate()
+{
+	// Guard
+	{
+		float now = GetTime();
+		if (g_lastFixedUpdate - now < g_fixedTimeStep)
+			return;
+
+		g_lastFixedUpdate = now;
+	}
+
+	// Todo
+}
+
+// Every frame
+void Update()
+{
+	if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+	{
+		g_playerCamera.offset = Vector2Add(g_playerCamera.offset, GetMouseDelta());
+	}
+
+	g_screenRect.x = -g_playerCamera.offset.x;
+	g_screenRect.y = -g_playerCamera.offset.y;
+}
+
+int g_windowWidth = 1280;
+int g_windowHeight = 720;
+void DrawFrame()
+{
+	BeginDrawing();
+	ClearBackground(RAYWHITE);
+
+	BeginMode2D(g_playerCamera);
+	ForEachVisibleNode(ResourceNode::Draw);
+	EndMode2D();
+
+	// FPS counter
+	{
+		int width = MeasureText(TextFormat("%2i FPS", GetFPS()), 20);
+		DrawRectangle(2, 2, width, 20, RAYWHITE);
+		DrawFPS(2, 2);
+	}
+	EndDrawing();
+}
+
+void PlayGame()
+{
+	while (!WindowShouldClose())
+	{
+		TryFixedUpdate();
+
+		Update();
+
+		DrawFrame();
 	}
 }
 
 int main()
 {
-	SetConfigFlags(ConfigFlags::FLAG_MSAA_4X_HINT);
+	SetConfigFlags(ConfigFlags::FLAG_MSAA_4X_HINT | ConfigFlags::FLAG_WINDOW_RESIZABLE);
 	InitWindow(1280, 720, "Logistics Game");
-	Rectangle cullingRect = { 0,0,1280,720 };
 	SetTargetFPS(60);
 
-	// World gen
-	{
-		std::thread worldGen(WorldGen::GenerateWorld);
+	GenerateWorld();
 
-		Vector2 previewPanning = Vector2Zero();
-
-		while (WorldGen::stage != WorldGen::WorldGenStage::Complete)
-		{
-			if (WindowShouldClose())
-			{
-				WorldGen::timeToGo = true;
-				worldGen.join();
-				CloseWindow();
-				return 0;
-			}
-			BeginDrawing();
-			{
-				WorldGen::WorldGenStage stage = WorldGen::stage.load();
-				float stageProgress = WorldGen::stageProgress.load();
-
-				ClearBackground(BLACK);
-
-				previewPanning.x += GetFrameTime() * -40.0f;
-				previewPanning.y += GetFrameTime() * -20.0f;
-
-				for (int i = 0; i < g_patches.size(); ++i)
-				{
-					const ResourcePatch& patch = g_patches[i];
-					Color color = patch.base.GetColor();
-					color.a = patch.endNode <= g_world.size() ? 255 : 63;
-					DrawPixelV(Vector2Scale(Vector2Add(patch.base.pos, previewPanning), 0.05f), color);
-				}
-
-				const char* stageName = WorldGen::g_stageNames[(int)stage];
-				DrawText("Generating world", 4, 4, 8, WHITE);
-				DrawText(stageName, 4, 20, 8, LIGHTGRAY);
-				DrawRectangle(4, 36, 100, 16, DARKGRAY);
-				DrawRectangle(4, 36, 100 * stageProgress, 16, BLUE);
-				DrawText(TextFormat("%i%%", (int)(stageProgress * 100.0f)), 8, 39, 8, WHITE);
-				DrawText(TextFormat("Total patches: %#5i\nTotal nodes: %#8i", g_patches.size(), g_world.size()), 4, 58, 8, LIGHTGRAY);
-			}
-			EndDrawing();
-		}
-		worldGen.join();
-	}
-
-	RenderTexture nanite = LoadRenderTexture(1280, 720);
-	float lastFixedUpdate = -INFINITY;
-
-	auto RefreshResourceTexture = [&]()
-	{
-		BeginTextureMode(nanite);
-		{
-			ClearBackground({ 0,0,0,0 });
-			BeginMode2D(g_playerCamera);
-			DrawPatches(cullingRect);
-			EndMode2D();
-		}
-		EndTextureMode();
-	};
-
-	RefreshResourceTexture();
-
-	while (!WindowShouldClose())
-	{
-		float now = GetTime();
-
-		// Fixed Update (every g_fixedTimeStep)
-		if ((lastFixedUpdate - now) >= g_fixedTimeStep)
-		{
-			lastFixedUpdate = now;
-
-			// todo
-		}
-
-		// Update (every frame)
-		{
-			bool worldDirty = false;
-			if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
-			{
-				g_playerCamera.offset = Vector2Add(g_playerCamera.offset, GetMouseDelta());
-				worldDirty = true;
-			}
-
-			cullingRect.x = -g_playerCamera.offset.x;
-			cullingRect.y = -g_playerCamera.offset.y;
-
-			if (worldDirty)
-				RefreshResourceTexture();
-		}
-
-		// Frame
-		BeginDrawing();
-		{
-			ClearBackground(RAYWHITE);
-
-			DrawTextureRec(nanite.texture, { 0,0,1280,-720 }, { 0,0 }, WHITE);
-
-			int width = MeasureText(TextFormat("%2i FPS", GetFPS()), 20);
-			DrawRectangle(2,2, width, 20, RAYWHITE);
-			DrawFPS(2,2);
-		}
-		EndDrawing();
-	}
-
-	UnloadRenderTexture(nanite);
+	PlayGame();
 
 	CloseWindow();
 
