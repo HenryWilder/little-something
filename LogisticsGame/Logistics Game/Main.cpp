@@ -1,9 +1,15 @@
 #include <vector>
-#include <queue>
+#include <deque>
 #include <random>
 #include <thread>
 #include <raylib.h>
 #include <raymath.h>
+
+using uniform_byte_t  = std::uniform_int_distribution<unsigned char>;
+using uniform_int_t   = std::uniform_int_distribution<int>;
+using uniform_float_t = std::uniform_real_distribution<float>;
+using normal_float_t  = std::normal_distribution<float>;
+using random_engine   = std::default_random_engine;
 
 Vector2 TransformToWorld(Vector2 pt, Camera2D camera)
 {
@@ -16,6 +22,21 @@ Vector2 PointFromAngleAndDistance(float angle, float distance)
 		sin(angle) * distance,
 		cos(angle) * distance
 	};
+}
+
+Color UniformColor(Color colorMin, Color colorMax, std::default_random_engine& gen)
+{
+	uniform_byte_t r(colorMin.r, colorMax.r);
+	uniform_byte_t g(colorMin.g, colorMax.g);
+	uniform_byte_t b(colorMin.b, colorMax.b);
+	uniform_byte_t a(colorMin.a, colorMax.a);
+	return { r(gen),b(gen),g(gen),a(gen) };
+}
+Vector2 UniformVector2(float radius, random_engine& g)
+{
+	static uniform_float_t angleDistr(0,2*PI);
+	uniform_float_t lenDirstr(radius);
+	return PointFromAngleAndDistance(angleDistr(g), lenDirstr(g));
 }
 
 constexpr float g_fixedTimeStep = 0.1f; // Ten Hz
@@ -135,16 +156,16 @@ namespace WorldGen
 	std::atomic<WorldGenStage> stage = WorldGenStage::AllocatingMemory;
 	std::atomic<float> stageProgress = 0.0f;
 
-	std::uniform_int_distribution<int> UniformIntDistrFromCenterAndExtent(int center, int extent)
+	uniform_int_t UniformIntDistrFromCenterAndExtent(int center, int extent)
 	{
-		return std::uniform_int_distribution<int>(center - extent, center + extent);
+		return uniform_int_t(center - extent, center + extent);
 	}
 
 	float g_worldExtent = 30000;
 
 	void GenerateWorld()
 	{
-		std::default_random_engine generator;
+		random_engine generator;
 
 		stage.store(WorldGenStage::AllocatingMemory);
 		stageProgress.store(0);
@@ -187,7 +208,7 @@ namespace WorldGen
 		stage.store(WorldGenStage::PlacingPatches);
 		stageProgress.store(0.0f);
 
-		std::uniform_real_distribution<float> patchDistr(-g_worldExtent, g_worldExtent);
+		uniform_float_t patchDistr(-g_worldExtent, g_worldExtent);
 
 		int runningStart = 0;
 		for (int i = 0; i < totalPatches; ++i)
@@ -228,7 +249,7 @@ namespace WorldGen
 		stage.store(WorldGenStage::GrowingNodes_Metal);
 		stageProgress.store(0.0f);
 
-		std::uniform_real_distribution<float> nodeAngleDistr(0.0f, 2.0f * PI);
+		uniform_float_t nodeAngleDistr(0.0f, 2.0f * PI);
 
 		for (int i = 0; i < totalPatches; ++i)
 		{
@@ -238,7 +259,7 @@ namespace WorldGen
 			int thisPatchSize = patchSizes[i];
 			float patchRadius = sqrtf((float)thisPatchSize / PI) * g_nodeSpread;
 			thisPatch.radius = patchRadius;
-			std::normal_distribution<float> nodeRadiusDistr(0.0f, patchRadius / 6.0f);
+			normal_float_t nodeRadiusDistr(0.0f, patchRadius / 6.0f);
 			for (int i = 0; i < thisPatchSize; ++i)
 			{
 				float angle = nodeAngleDistr(generator);
@@ -347,20 +368,61 @@ int g_itemCounts[g_resourceTypes];
 
 struct SuccEffect
 {
-	static constexpr float lifetime = 0.75f;
+	static constexpr float lifetime = 0.25f;
+	static constexpr float startAlpha = 200;
+	static constexpr int maxSimul = 10; // Maximum at a time
+
 	Vector2 position;
+	Vector2 velocity;
 	float birthDate;
 	float radius;
+	float growthRate;
 	Color color;
 };
-std::queue<SuccEffect> effects;
+std::deque<SuccEffect> effects;
 
-void SpawnSuccEffect(Vector2 at)
+void SpawnSuccEffect(Vector2 pos, Color color)
 {
-	static std::default_random_engine g;
-	std::uniform_int_distribution distr(127, 255);
-	Color color{ distr(g),distr(g),distr(g),127 };
-	effects.emplace(at, GetTime(), 2.0f, color);
+	if (effects.size() == SuccEffect::maxSimul)
+		return;
+
+	static random_engine g;
+	pos = Vector2Add(pos, UniformVector2(4.0f, g));
+	Vector2 vel = UniformVector2(8.0f, g);
+	uniform_float_t startRadiusDistr(0.5f, 1.0f);
+	uniform_float_t growthRateDistr(32.0f, 56.0f);
+	{
+		Color colorMin{ color.r - 32, color.g - 32, color.b - 32, SuccEffect::startAlpha };
+		Color colorMax{ color.r + 32, color.g + 32, color.b + 32, SuccEffect::startAlpha };
+		UniformColor(colorMin, colorMax, g);
+	}
+	effects.emplace_front(pos, vel, GetTime(), startRadiusDistr(g), growthRateDistr(g), color);
+}
+void UpdateSuccEffects()
+{
+	float now = GetTime();
+	while (!effects.empty() && now - effects.back().birthDate >= SuccEffect::lifetime)
+	{
+		effects.pop_back();
+	}
+
+	float dt = GetFrameTime();
+	for (SuccEffect& succ : effects)
+	{
+		float age = now - succ.birthDate;
+		float ageMu = age / SuccEffect::lifetime;
+		succ.position.x += succ.velocity.x * dt;
+		succ.position.y += succ.velocity.y * dt;
+		succ.radius += succ.growthRate * dt;
+		succ.color.a = (unsigned char)Lerp(SuccEffect::startAlpha, 0, ageMu);
+	}
+}
+void DrawSuccEffects()
+{
+	for (SuccEffect& succ : effects)
+	{
+		DrawRing(succ.position, succ.radius - 3, succ.radius, 0, 360, 20, succ.color);
+	}
 }
 
 std::vector<ResourceNode*> g_inhaling;
@@ -398,6 +460,7 @@ void TryFixedUpdate()
 			node->beingInhaled = false;
 			node->visible = false;
 			++g_itemCounts[(int)node->type];
+			SpawnSuccEffect(node->pos, node->GetColor());
 		}
 	}
 
@@ -424,6 +487,7 @@ void Update()
 	}
 
 	UpdateScreenRect();
+	UpdateSuccEffects();
 }
 
 int g_windowWidth = 1280;
@@ -435,6 +499,7 @@ void DrawFrame()
 
 	BeginMode2D(g_playerCamera);
 	ForEachVisibleNode(ResourceNode::Draw);
+	DrawSuccEffects();
 	BeginBlendMode(BLEND_ADDITIVE);
 	DrawRing(g_collectionPos, g_collectionRadius, g_collectionRadius + 2, 0, 360, 36, GRAY);
 	EndBlendMode();
