@@ -4,6 +4,11 @@
 #include <raylib.h>
 #include <raymath.h>
 
+Vector2 TransformToWorld(Vector2 pt, Camera2D camera)
+{
+	return Vector2Add(Vector2Scale(pt, camera.zoom), camera.offset);
+}
+
 Vector2 PointFromAngleAndDistance(float angle, float distance)
 {
 	return Vector2{
@@ -44,6 +49,7 @@ struct ResourceNode
 	Vector2 pos;
 	ResourceType type;
 	bool visible = true;
+	bool beingInhaled = false;
 
 	Color GetColor() const { return g_resourceColors[(int)type]; }
 	bool OnScreen() const { return visible && CheckCollisionPointRec(pos, g_screenRect); }
@@ -54,7 +60,7 @@ using NodeIter_t  = Nodes_t::iterator;
 using NodeCIter_t = Nodes_t::const_iterator;
 Nodes_t g_world;
 
-float g_nodeSpread = 6.0f;
+float g_nodeSpread = 10.0f;
 
 struct ResourcePatch
 {
@@ -64,6 +70,18 @@ struct ResourcePatch
 	bool empty = false;
 
 	bool OnScreen() const { return !empty && CheckCollisionCircleRec(base.pos, radius, g_screenRect); }
+	static void UpdateEmpty(ResourcePatch& patch)
+	{
+		patch.empty = true;
+		for (const ResourceNode& node : patch)
+		{
+			if (node.visible)
+			{
+				patch.empty = false;
+				return;
+			}
+		}
+	}
 
 	NodeIter_t begin() const { return g_world.begin() + startNode; }
 	NodeCIter_t end()  const { return g_world.begin() + endNode; }
@@ -105,6 +123,8 @@ namespace WorldGen
 		return std::uniform_int_distribution(center - extent, center + extent);
 	}
 
+	float g_worldExtent = 30000;
+
 	void GenerateWorld()
 	{
 		std::default_random_engine generator;
@@ -142,7 +162,7 @@ namespace WorldGen
 		stage.store(WorldGenStage::PlacingPatches);
 		stageProgress.store(0.0f);
 
-		std::uniform_real_distribution<float> patchDistr(-30000, 30000);
+		std::uniform_real_distribution<float> patchDistr(-g_worldExtent, g_worldExtent);
 
 		int runningStart = 0;
 		for (int i = 0; i < totalPatches; ++i)
@@ -240,7 +260,8 @@ void GenerateWorld()
 {
 	std::thread worldGen(WorldGen::GenerateWorld);
 
-	Vector2 previewPanning = Vector2Zero();
+	float scale = 0.05f;
+	Camera2D previewCam{ { WorldGen::g_worldExtent * scale * 0.5f, WorldGen::g_worldExtent * scale * 0.25f }, { 0,0 }, 0.0f, scale };
 
 	while (WorldGen::stage != WorldGen::WorldGenStage::Complete)
 	{
@@ -249,11 +270,10 @@ void GenerateWorld()
 			WorldGen::timeToGo = true;
 			worldGen.join();
 			CloseWindow();
-			return;
+			exit(0);
 		}
 
 		UpdateScreenRect();
-		Camera2D loadingScreenCam{ {0,0}, {0,0}, 0.0f, 0.075f };
 
 		BeginDrawing();
 		WorldGen::WorldGenStage stage = WorldGen::stage.load();
@@ -261,18 +281,20 @@ void GenerateWorld()
 
 		ClearBackground(BLACK);
 
-		loadingScreenCam.offset.x += GetFrameTime() * -40.0f;
-		loadingScreenCam.offset.y += GetFrameTime() * -20.0f;
+		previewCam.offset.x += GetFrameTime() * -4.0f;
+		previewCam.offset.y += GetFrameTime() * -2.0f;
 
-		BeginMode2D(loadingScreenCam);
 		for (int i = 0; i < g_patches.size(); ++i)
 		{
 			const ResourcePatch& patch = g_patches[i];
 			Color color = patch.base.GetColor();
 			color.a = patch.endNode <= g_world.size() ? 255 : 63;
-			DrawPixelV(patch.base.pos, color);
+			DrawPixelV(TransformToWorld(patch.base.pos, previewCam), color);
 		}
-		EndMode2D();
+		Vector2 min = TransformToWorld({ 0,0 }, previewCam);
+		Vector2 max = TransformToWorld({ g_screenRect.width,g_screenRect.height }, previewCam);
+		Rectangle rec{ min.x, min.y, max.x - min.x, max.y - min.y };
+		DrawRectangleLinesEx(rec, 2, RED);
 
 		const char* stageName = WorldGen::g_stageNames[(int)stage];
 		DrawText("Generating world", 4, 4, 8, WHITE);
@@ -286,6 +308,19 @@ void GenerateWorld()
 	worldGen.join();
 }
 
+int g_metal = 0;
+int g_wood = 0;
+int g_water = 0;
+int g_energy = 0;
+
+struct SuccEffect
+{
+
+};
+
+std::vector<ResourceNode*> g_inhaling;
+Vector2 g_collectionPos = Vector2Zero();
+float g_collectionRadius = 8.0f;
 float g_lastFixedUpdate = -INFINITY;
 // Every g_fixedTimeStep
 void TryFixedUpdate()
@@ -293,13 +328,47 @@ void TryFixedUpdate()
 	// Guard
 	{
 		float now = GetTime();
-		if (g_lastFixedUpdate - now < g_fixedTimeStep)
+		if (now - g_lastFixedUpdate < g_fixedTimeStep)
 			return;
 
 		g_lastFixedUpdate = now;
 	}
 
-	// Todo
+	if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+	{
+		ForEachVisibleNode([](ResourceNode& node)
+			{
+				if (!node.beingInhaled && CheckCollisionPointCircle(node.pos, g_collectionPos, g_collectionRadius))
+				{
+					node.beingInhaled = true;
+					g_inhaling.push_back(&node);
+				}
+			});
+	}
+
+	for (ResourceNode* node : g_inhaling)
+	{
+		if (Vector2Distance(node->pos, g_collectionPos) < 3.0f)
+		{
+			node->beingInhaled = false;
+			node->visible = false;
+			switch (node->type)
+			{
+			case ResourceType::Metal:  ++g_metal;  break;
+			case ResourceType::Wood:   ++g_wood;   break;
+			case ResourceType::Water:  ++g_water;  break;
+			case ResourceType::Energy: ++g_energy; break;
+			}
+		}
+	}
+
+	for (int i = g_inhaling.size() - 1; i >= 0; --i)
+	{
+		if (g_inhaling[i]->beingInhaled == false)
+			g_inhaling.erase(g_inhaling.begin() + i);
+	}
+
+	ForEachVisiblePatch(ResourcePatch::UpdateEmpty);
 }
 
 // Every frame
@@ -308,6 +377,14 @@ void Update()
 	if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
 	{
 		g_playerCamera.offset = Vector2Add(g_playerCamera.offset, GetMouseDelta());
+	}
+	for (ResourceNode* node : g_inhaling)
+	{
+		if (node->visible)
+		{
+			float distance = Vector2Distance(node->pos, g_collectionPos);
+			node->pos = Vector2MoveTowards(node->pos, g_collectionPos, (distance + std::max((g_collectionRadius * 5) - distance, 15.0f)) * GetFrameTime());
+		}
 	}
 
 	UpdateScreenRect();
@@ -322,7 +399,12 @@ void DrawFrame()
 
 	BeginMode2D(g_playerCamera);
 	ForEachVisibleNode(ResourceNode::Draw);
+	BeginBlendMode(BLEND_ADDITIVE);
+	DrawRing(g_collectionPos, g_collectionRadius, g_collectionRadius + 2, 0, 360, 36, GRAY);
+	EndBlendMode();
 	EndMode2D();
+
+	DrawText(TextFormat("Metal: %i\nWood: %i\nWater: %i\nEnergy: %i", g_metal, g_wood, g_water, g_energy), 2, 28, 20, BLACK);
 
 	// FPS counter
 	{
@@ -337,6 +419,8 @@ void PlayGame()
 {
 	while (!WindowShouldClose())
 	{
+		g_collectionPos = GetScreenToWorld2D(GetMousePosition(), g_playerCamera);
+
 		TryFixedUpdate();
 
 		Update();
@@ -349,7 +433,7 @@ int main()
 {
 	SetConfigFlags(ConfigFlags::FLAG_MSAA_4X_HINT | ConfigFlags::FLAG_WINDOW_RESIZABLE);
 	InitWindow(1280, 720, "Logistics Game");
-	SetTargetFPS(60);
+	//SetTargetFPS(60);
 
 	GenerateWorld();
 
