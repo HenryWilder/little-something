@@ -308,6 +308,23 @@ requires(std::is_invocable_v<Callable, ResourceNode&>)
 struct ControlOut;
 struct ControlIn;
 
+struct ControlOut
+{
+private:
+	bool lastState = false;
+public:
+	bool state = false;
+	std::weak_ptr<ControlIn> dest;
+
+	// Since last time this was called
+	bool IsChanged()
+	{
+		bool changed = lastState != state;
+		lastState = state;
+		return changed;
+	}
+};
+
 struct ControlIn
 {
 	std::weak_ptr<ControlOut> src;
@@ -329,23 +346,6 @@ struct ControlIn
 
 		auto temp = src.lock();
 		return temp->state;
-	}
-};
-
-struct ControlOut
-{
-private:
-	bool lastState = false;
-public:
-	bool state = false;
-	std::weak_ptr<ControlIn> dest;
-
-	// Since last time this was called
-	bool IsChanged()
-	{
-		bool changed = lastState != state;
-		lastState = state;
-		return changed;
 	}
 };
 
