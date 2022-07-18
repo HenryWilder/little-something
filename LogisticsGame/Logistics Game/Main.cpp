@@ -2,6 +2,7 @@
 #include <deque>
 #include <random>
 #include <thread>
+#include <memory>
 #include <raylib.h>
 #include <raymath.h>
 
@@ -35,7 +36,7 @@ Color UniformColor(Color colorMin, Color colorMax, std::default_random_engine& g
 Vector2 UniformVector2(float radius, random_engine& g)
 {
 	static uniform_float_t angleDistr(0,2*PI);
-	uniform_float_t lenDirstr(radius);
+	uniform_float_t lenDirstr(0.0f, radius);
 	return PointFromAngleAndDistance(angleDistr(g), lenDirstr(g));
 }
 
@@ -60,7 +61,7 @@ constexpr Color g_resourceColors[] =
 	LIGHTGRAY, // Metal
 	BROWN,     // Wood
 	BLUE,      // Water
-	YELLOW,    // Energy
+	GOLD,      // Energy
 };
 constexpr const char* ResourceTypeNameFromIndex(int typeIndex)
 {
@@ -304,6 +305,81 @@ requires(std::is_invocable_v<Callable, ResourceNode&>)
 	}
 }
 
+struct ControlOut;
+struct ControlIn;
+
+struct ControlIn
+{
+	std::weak_ptr<ControlOut> src;
+
+	bool State() const
+	{
+		if (src.expired())
+			return false;
+
+		auto temp = src.lock();
+		return temp->state;
+	}
+	// Since last time this was called
+	// Passthrough to src->IsChanged(); always false if src expires
+	bool IsChanged() const
+	{
+		if (src.expired())
+			return false;
+
+		auto temp = src.lock();
+		return temp->state;
+	}
+};
+
+struct ControlOut
+{
+private:
+	bool lastState = false;
+public:
+	bool state = false;
+	std::weak_ptr<ControlIn> dest;
+
+	// Since last time this was called
+	bool IsChanged()
+	{
+		bool changed = lastState != state;
+		lastState = state;
+		return changed;
+	}
+};
+
+struct TrainTrack;
+struct TrainStation;
+struct TrainEngine;
+struct TrainCar;
+struct TrainJunction;
+
+struct TrainTrack
+{
+
+};
+
+struct TrainStation
+{
+
+};
+
+struct TrainCar
+{
+
+};
+
+struct TrainEngine
+{
+
+};
+
+struct TrainJunction
+{
+
+};
+
 void UpdateScreenRect()
 {
 	g_screenRect.x = -g_playerCamera.offset.x;
@@ -391,11 +467,6 @@ void SpawnSuccEffect(Vector2 pos, Color color)
 	Vector2 vel = UniformVector2(8.0f, g);
 	uniform_float_t startRadiusDistr(0.5f, 1.0f);
 	uniform_float_t growthRateDistr(32.0f, 56.0f);
-	{
-		Color colorMin{ color.r - 32, color.g - 32, color.b - 32, SuccEffect::startAlpha };
-		Color colorMax{ color.r + 32, color.g + 32, color.b + 32, SuccEffect::startAlpha };
-		UniformColor(colorMin, colorMax, g);
-	}
 	effects.emplace_front(pos, vel, GetTime(), startRadiusDistr(g), growthRateDistr(g), color);
 }
 void UpdateSuccEffects()
