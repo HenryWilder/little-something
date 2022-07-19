@@ -1,5 +1,6 @@
 #include <vector>
 #include <deque>
+#include <stack>
 #include <random>
 #include <thread>
 #include <memory>
@@ -23,6 +24,38 @@ Vector2 PointFromAngleAndDistance(float angle, float distance)
 		sin(angle) * distance,
 		cos(angle) * distance
 	};
+}
+
+bool CheckCollisionPointRectPro(Vector2 pt, float rotation, Rectangle rec)
+{
+	Vector2 centerRect = { rec.x + rec.width * 0.5f, rec.y + rec.height * 0.5f };
+	bool result = CheckCollisionPointRec(Vector2Add(Vector2Rotate(Vector2Subtract(pt, centerRect), rotation), centerRect), rec);
+	return result;
+}
+
+constexpr Rectangle RectFromCenterAndExtents(Vector2 position, Vector2 extents)
+{
+	return { position.x - extents.x, position.y - extents.y, extents.x * 2, extents.y * 2 };
+}
+
+constexpr Color ColorTint(Color value, Color tint)
+{
+	value.r = (byte)(((unsigned int)value.r*(unsigned int)tint.r) >> 8);
+	value.g = (byte)(((unsigned int)value.g*(unsigned int)tint.g) >> 8);
+	value.b = (byte)(((unsigned int)value.b*(unsigned int)tint.b) >> 8);
+	value.a = (byte)(((unsigned int)value.a*(unsigned int)tint.a) >> 8);
+	return value;
+}
+
+void DrawCircleOutlineEx(Vector2 center, float radius, float thickness, Color color)
+{
+	float halfThickness = thickness * 0.5f;
+	DrawRing(center, radius - halfThickness, radius + halfThickness, 0.0f, 360.0f, 36, color);
+}
+
+void DrawCircleOutline(Vector2 center, float radius, Color color)
+{
+	DrawCircleOutlineEx(center, radius, 1.0f, color);
 }
 
 Color UniformColor(Color colorMin, Color colorMax, std::default_random_engine& gen)
@@ -305,80 +338,220 @@ requires(std::is_invocable_v<Callable, ResourceNode&>)
 	}
 }
 
-struct ControlOut;
-struct ControlIn;
-
-struct ControlOut
+namespace Train
 {
-private:
-	bool lastState = false;
-public:
-	bool state = false;
-	std::weak_ptr<ControlIn> dest;
-
-	// Since last time this was called
-	bool IsChanged()
+	struct Entity
 	{
-		bool changed = lastState != state;
-		lastState = state;
-		return changed;
-	}
-};
+		Vector2 position = { 0 }; // Centered
+		float rotation = 0.0f; // Rotation after offset
 
-struct ControlIn
-{
-	std::weak_ptr<ControlOut> src;
+		virtual bool CheckHovered(Vector2 point) const = 0; // Meant for UI collision
+		virtual void Draw(Color tint) const = 0;
+	};
 
-	bool State() const
+	// Communication
+
+	// Shared visual elements
+	struct Control : public Entity
 	{
-		if (src.expired())
-			return false;
+		static constexpr float g_radius = 10.0f;
+		static constexpr float g_anchorRadius = 7.0f;
+		static constexpr Color baseColor = GRAY;
+		static constexpr Color anchorColor = RED;
+		static constexpr Color wireColor = BLACK;
 
-		auto temp = src.lock();
-		return temp->state;
-	}
-	// Since last time this was called
-	// Passthrough to src->IsChanged(); always false if src expires
-	bool IsChanged() const
+		virtual bool IsConnected() const = 0;
+		virtual bool State() const = 0;
+		virtual bool IsChanged() const = 0;
+		void Draw(Color tint) const override
+		{
+			// @Speed: replace with texture
+			DrawCircleV(position, g_radius, ColorTint(baseColor, tint));
+			Color color = IsConnected() ? anchorColor : wireColor;
+			DrawCircleOutlineEx(position, g_anchorRadius, 2, ColorTint(anchorColor, tint));
+		}
+	};
+
+	struct ControlOut;
+	struct ControlIn;
+
+	struct ControlOut : public Control
 	{
-		if (src.expired())
-			return false;
+	private:
+		mutable bool lastState = false;
+	public:
+		bool state = false;
+		std::weak_ptr<ControlIn> dest;
 
-		auto temp = src.lock();
-		return temp->state;
-	}
-};
+		bool IsConnected() const final
+		{
+			return !dest.expired();
+		}
+		bool State() const final
+		{
+			return state;
+		}
+		// Since last time this was called
+		bool IsChanged() const final
+		{
+			bool changed = lastState != state;
+			lastState = state;
+			return changed;
+		}
+		void Draw(Color tint) const final
+		{
+			// Source draws the wire
+			if (IsConnected())
+			{
+				Vector2 
+			}
+			Control::Draw(tint);
+		}
+	};
+	using Outputs_t = std::vector<std::shared_ptr<ControlOut>>;
 
-struct TrainTrack;
-struct TrainStation;
-struct TrainEngine;
-struct TrainCar;
-struct TrainJunction;
+	struct ControlIn : public Control
+	{
+		std::weak_ptr<ControlOut> src;
 
-struct TrainTrack
-{
+		bool IsConnected() const final
+		{
+			return !src.expired();
+		}
+		bool State() const final
+		{
+			if (src.expired())
+				return false;
 
-};
+			auto temp = src.lock();
+			return temp->state;
+		}
+		// Since last time this was called
+		// Passthrough to src->IsChanged(); always false if src expires
+		bool IsChanged() const final
+		{
+			if (src.expired())
+				return false;
 
-struct TrainStation
-{
+			auto temp = src.lock();
+			return temp->state;
+		}
+		void Draw(Color tint) const final
+		{
+			Control::Draw(tint);
 
-};
+		}
+	};
+	using Inputs_t = std::vector<std::shared_ptr<ControlIn>>;
 
-struct TrainCar
-{
+	struct Infrastructure;
+	struct Rail;
+	struct Station;
+	struct Junction;
 
-};
+	// An input/output for a Rail
+	struct RailPort : public Entity
+	{
+		static constexpr Vector2 extents = { 4,4 };
+		Rectangle GetRect() const
+		{
+			return RectFromCenterAndExtents(position, extents);
+		}
+		bool CheckHovered(Vector2 point) const final
+		{
+			return CheckCollisionPointRectPro(point, rotation, GetRect());
+		}
+		void Draw(Color tint) const final
+		{
 
-struct TrainEngine
-{
+		}
+	};
 
-};
+	// Infrastructure
 
-struct TrainJunction
-{
+	// A segment of track that trains can traverse
+	struct Rail : public Entity
+	{
+		std::weak_ptr<RailPort> connections[2];
 
-};
+		void Draw(Color tint) const final
+		{
+			Vector2 nodes[2];
+			for (int i = 0; i < 2; ++i)
+			{
+				if (!connections[i].expired())
+				{
+					auto port = connections[i].lock();
+					nodes[i] = port->position;
+				}
+				else
+				{
+					nodes[i] = position
+				}
+			}
+		}
+	};
+
+	// A source/destination for trains transporting materials
+	struct Station : public Entity
+	{
+
+	};
+
+	struct Junction : public Entity
+	{
+
+	};
+
+	// Vehicles
+
+	// The base struct for containers that traverse tracks
+	struct RollingStock : public Entity
+	{
+		static constexpr Vector2 extents = { 50,20 };
+		float rotation;
+
+		Rectangle GetBaseRect() const
+		{
+			Rectangle result = { position.x - extents.x, position.y - extents.y, extents.x * 2, extents.y * 2 };
+			return result;
+		}
+		void Draw(Color tint) const override
+		{
+			Rectangle rect = GetBaseRect();
+			DrawRectanglePro(rect, { 0.5f,0.5f }, rotation, GRAY);
+		}
+	};
+	using Trainset_t = std::deque<RollingStock>;
+
+	// A car that pulls/pushes other cars
+	struct Locomotive : RollingStock
+	{
+		float speed;
+		Trainset_t payload; // Cars being pulled
+
+		void Draw(Color tint) const override
+		{
+
+		}
+	};
+
+	struct FreightCar : public RollingStock
+	{
+		void Draw(Color tint) const override
+		{
+
+		}
+	};
+
+	struct FlatCar : public RollingStock
+	{
+		void Draw(Color tint) const override
+		{
+
+		}
+	};
+}
 
 void UpdateScreenRect()
 {
