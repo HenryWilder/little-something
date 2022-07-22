@@ -384,8 +384,8 @@ public:
 			switch (action)
 			{
 			case Adjective::YOU:
-				velocity.x = input.x;
-				velocity.y = input.y;
+				velocity.x += input.x;
+				velocity.y += input.y;
 				break;
 			case Adjective::MOVE:
 				// @Todo: Move in direction of rotation
@@ -558,7 +558,7 @@ void Step()
 	// @Todo: The types map will be invalid ?????
 
 	// Map rules by type
-	types.clear();
+	typeRules.clear();
 	for (Rule rule : ruleset)
 	{
 		typeRules[rule.target].push_back(rule);
