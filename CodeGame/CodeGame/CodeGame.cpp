@@ -40,6 +40,17 @@ namespace std
 	};
 }
 
+// Returns true if blocker is between start and end
+// (start...end]
+bool CheckHit(Vector2Int start, Vector2Int end, Vector2Int blocker)
+{
+	return
+		start.x < blocker.x && blocker.x <= end.x ||
+		end.x <= blocker.x && blocker.x < start.x ||
+		start.y < blocker.y && blocker.y <= end.y ||
+		end.y <= blocker.y && blocker.y < start.y;
+}
+
 enum class Word : byte
 {
 	// Flags
@@ -62,6 +73,7 @@ enum class Word : byte
 
 	// Adjectives
 	YOU = ADJECTIVE_BIT,
+	MOVE,
 	WIN,
 	PUSH,
 	PULL,
@@ -116,6 +128,7 @@ const char* ToString(Verb value)
 enum class Adjective : byte
 {
 	YOU = (byte)Word::ADJECTIVE_BIT,
+	MOVE,
 	WIN,
 	PUSH,
 	PULL,
@@ -129,6 +142,7 @@ const char* ToString(Adjective value)
 	constexpr const char* names[] =
 	{
 		"YOU",
+		"MOVE",
 		"WIN",
 		"PUSH",
 		"PULL",
@@ -147,6 +161,22 @@ struct Rule
 	Verb action; // Rules are single statements and can't have 'and'
 	NounOrAdjective_t value;
 
+	Noun GetConversionResult() const
+	{
+		_ASSERTE(std::holds_alternative<Noun>(value));
+		return std::get<Noun>(value);
+	}
+	Adjective GetProperty() const
+	{
+		_ASSERTE(IsProperty());
+		return std::get<Adjective>(value);
+	}
+
+	bool IsValid() const
+	{
+		return action == Verb::IS || (std::holds_alternative<Noun>(value) && action == Verb::HAS);
+	}
+
 	const std::string ToString() const
 	{
 		return
@@ -156,8 +186,55 @@ struct Rule
 				? ::ToString(std::get<Noun>(value))
 				: ::ToString(std::get<Adjective>(value))));
 	}
+
+	// Categorizations
+
+	// Rule converts target to value type; does not include mortum cast
+	bool IsConversion() const
+	{
+		return action == Verb::IS && std::holds_alternative<Noun>(value);
+	}
+	// Rule applies value as property to target
+	bool IsProperty() const
+	{
+		return action == Verb::IS && std::holds_alternative<Adjective>(value);
+	}
+	// Rule converts target to type when target is destroyed
+	bool IsMortumCast() const
+	{
+		_ASSERTE(std::holds_alternative<Noun>(value));
+		return action == Verb::HAS;
+	}
+
+	// "One-Off" rules apply once per instance
+	bool IsOneOff() const
+	{
+		return IsConversion() || IsMortumCast();
+	}
+	// "Active" rules are applied every step
+	bool IsActive() const
+	{
+		if (!IsProperty()) return false;
+		_ASSERTE(std::holds_alternative<Adjective>(value));
+		Adjective x = std::get<Adjective>(value);
+		return IsProperty() &&
+			x == Adjective::MOVE ||
+			x == Adjective::YOU;
+	}
+	// "Passive" rules are applied only through interactions
+	bool IsPassive() const
+	{
+		return !IsActive() && !IsOneOff();
+	}
 };
-std::list<Rule> ruleset; // In-play
+using Ruleset_t = std::list<Rule>;
+Ruleset_t ruleset; // In-play
+std::unordered_map<Noun, Ruleset_t> typeRules;
+Ruleset_t* RulesForType(Noun type)
+{
+	auto it = typeRules.find(type);
+	return (it != typeRules.end()) ? &it->second : nullptr;
+}
 
 constexpr int gridSize = 32;
 
@@ -221,6 +298,7 @@ public:
 
 	Vector2Int Position() const { return position; }
 	Noun What() const { return meta; }
+	Ruleset_t* Rules() const { return RulesForType(meta); }
 	bool IsText()      const { return meta == Noun::TEXT; }
 	bool IsNoun()      const { return (byte)text & (byte)Word::NOUN_BIT; } // Text noun, not object noun
 	bool IsVerb()      const { return (byte)text & (byte)Word::VERB_BIT; }
@@ -284,75 +362,110 @@ public:
 	{
 		meta = what;
 	}
-	void Is(Adjective adj)
-	{
-		switch (adj)
-		{
-		case Adjective::YOU:
-			velocity.x += input.x;
-			velocity.y += input.y;
-			break;
-		case Adjective::WIN:
-			break;
-		case Adjective::PUSH:
-			break;
-		case Adjective::PULL:
-			break;
-		case Adjective::STOP:
-		{
-			constexpr Vector2Int directions[] =
-			{
-				{  0, -1 },
-				{ +1,  0 },
-				{  0, +1 },
-				{ -1,  0 },
-			};
-			for (Vector2Int dir : directions)
-			{
-				Vector2Int space =
-				{
-					position.x + dir.x,
-					position.y + dir.y
-				};
-				Objects_t* objects = ObjectAtPosition(space);
-				if (!objects) continue;
-				for (Object* obj : *objects)
-				{
-					if (obj->velocity.x != 0 && obj->velocity.x / abs(obj->velocity.x) == -dir.x)
-						obj->velocity.x = 0;
-					if (obj->velocity.y != 0 && obj->velocity.y / abs(obj->velocity.y) == -dir.y)
-						obj->velocity.y = 0;
-				}
-			}
-		}
-			break;
-		case Adjective::DEFEAT:
-			break;
-		case Adjective::TELE:
-			break;
-		case Adjective::MELT:
-			break;
 
-		default:
-			// Do nothing
-			break;
-		}
-	}
-	void Has(Noun noun)
-	{
-		// @Todo
-	}
-	// Called before all rules are applied
-	void Reset()
-	{
-		velocity.x = 0;
-		velocity.y = 0;
-	}
 	// Called after all rules are applied
 	void Update()
 	{
+		velocity.x = 0;
+		velocity.y = 0;
+
+		Ruleset_t* myRules = Rules();
+
+		if (!myRules) return;
+
+		bool destroyedThisStep = false;
+
+		for (const Rule& rule : *myRules)
+		{
+			if (rule.action != Verb::IS || std::holds_alternative<Noun>(rule.value)) continue;
+			Adjective action = std::get<Adjective>(rule.value);
+
+			// "Active" actions which the object performs for itself
+			switch (action)
+			{
+			case Adjective::YOU:
+				velocity.x = input.x;
+				velocity.y = input.y;
+				break;
+			case Adjective::MOVE:
+				// @Todo: Move in direction of rotation
+				break;
+			}
+		}
+
+		// "Passive" actions which are sampled from adjacent tiles
+		constexpr Vector2Int offsets[] =
+		{
+			{  0, -1 },
+			{ +1,  0 },
+			{  0, +1 },
+			{ -1,  0 },
+		};
+		for (Vector2Int offset : offsets)
+		{
+			Vector2Int space =
+			{
+				position.x + offset.x,
+				position.y + offset.y
+			};
+			Objects_t* objects = ObjectAtPosition(space);
+			if (!objects) continue;
+			for (Object* object : *objects)
+			{
+				Ruleset_t* spaceRules = object->Rules();
+				for (const Rule& rule : *spaceRules)
+				{
+					if (!rule.IsProperty()) continue;
+					// "Active" actions which the object performs for itself
+					switch (rule.GetProperty())
+					{
+					case Adjective::PUSH:
+						// @Todo
+						break;
+					case Adjective::PULL:
+						// @Todo
+						break;
+
+					case Adjective::WIN:
+						// @Todo: Win condition
+						break;
+					case Adjective::STOP:
+						// Blocking?
+						Vector2Int newPos =
+						{
+							position.x + velocity.x,
+							position.y + velocity.y,
+						};
+						if (CheckHit(position, newPos, space))
+						{
+							velocity.x = 0;
+							velocity.y = 0;
+						}
+						break;
+					case Adjective::DEFEAT:
+						// @Todo: Lose condition
+						break;
+					case Adjective::TELE:
+						break;
+					case Adjective::MELT:
+						break;
+					}
+				}
+			}
+		}
+
 		position.x += velocity.x;
 		position.y += velocity.y;
+
+		// Has is applied after destruction
+		if (destroyedThisStep)
+		{
+			for (const Rule& rule : *myRules)
+			{
+				if (rule.IsMortumCast()) continue;
+				// @Todo: Create new object
+			}
+		}
 	}
 };
 
@@ -429,41 +542,29 @@ void Step()
 		types[type].push_back(obj);
 	}
 
-	for (Object* obj : world)
-	{
-		obj->Reset();
-	}
-
-	// Evaluate rules
+	// Apply type conversion rules
 	for (const Rule& rule : ruleset)
 	{
 		auto it = types.find(rule.target);
-		if (it == types.end())
-			continue;
+		if (it == types.end()) continue;
 
 		const Objects_t& objects = it->second;
 		for (Object* obj : objects)
 		{
-			switch (rule.action)
-			{
-			case Verb::IS:
-				if (std::holds_alternative<Noun>(rule.value))
-					obj->Is(std::get<Noun>(rule.value));
-				else
-					obj->Is(std::get<Adjective>(rule.value));
-				break;
-
-			case Verb::HAS:
-				obj->Has(std::get<Noun>(rule.value));
-				break;
-
-			default:
-				_ASSERT_EXPR(false, L"Invalid rule");
-				break;
-			}
+			if (rule.action == Verb::IS && std::holds_alternative<Noun>(rule.value))
+				obj->Is(std::get<Noun>(rule.value));
 		}
 	}
+	// @Todo: The types map will be invalid ?????
 
+	// Map rules by type
+	types.clear();
+	for (Rule rule : ruleset)
+	{
+		typeRules[rule.target].push_back(rule);
+	}
+
+	// Update objects according to rules
 	for (Object* obj : world)
 	{
 		obj->Update();
