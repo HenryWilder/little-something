@@ -211,9 +211,49 @@ public:
 	Verb AsVerb()           const { _ASSERTE(IsVerb()); return (Verb)text; }
 	Adjective AsAdjective() const { _ASSERTE(IsAdjective()); return (Adjective)text;}
 
-	void Draw(Vector2 offsetFromSpace, Color tint) const
+	void Draw(Vector2 offsetFromSpace) const
 	{
-		DrawRectangle(position.x * gridSize, position.y * gridSize, gridSize, gridSize, tint);
+		// @Todo: This is placeholder code. Please replace with textures.
+		Color color;
+		if (meta == Noun::TEXT) // Name, not object
+		{
+			switch (text)
+			{
+			case Word::BABA:   color = RED; break;
+			case Word::WALL:   color = MAGENTA; break;
+			case Word::ROCK:   color = MAGENTA; break;
+			case Word::TEXT:   color = MAGENTA; break;
+			case Word::LOVE:   color = MAGENTA; break;
+
+			case Word::IS:     color = WHITE; break;
+			case Word::AND:    color = WHITE; break;
+			case Word::HAS:    color = WHITE; break;
+
+			case Word::YOU:    color = RED; break;
+			case Word::WIN:    color = MAGENTA; break;
+			case Word::PUSH:   color = MAGENTA; break;
+			case Word::PULL:   color = MAGENTA; break;
+			case Word::STOP:   color = MAGENTA; break;
+			case Word::DEFEAT: color = MAGENTA; break;
+			case Word::TELE:   color = MAGENTA; break;
+			case Word::MELT:   color = MAGENTA; break;
+			default:           color = MAGENTA; break;
+			}
+		}
+		else // Object, not name
+		{
+			switch (meta)
+			{
+			case Noun::BABA: color = WHITE; break;
+			case Noun::WALL: color = MAGENTA; break;
+			case Noun::ROCK: color = MAGENTA; break;
+			case Noun::TEXT: color = MAGENTA; break;
+			case Noun::LOVE: color = MAGENTA; break;
+			default:         color = MAGENTA; break;
+			}
+		}
+
+		DrawRectangle(position.x * gridSize, position.y * gridSize, gridSize, gridSize, color);
 	}
 
 	// Rules
@@ -410,7 +450,7 @@ int main()
 
 		for (Object* obj : Object::world)
 		{
-			obj->Draw(Vector2Zero(), WHITE);
+			obj->Draw(Vector2Zero());
 		}
 
 		for (const Rule& rule : ruleset)
