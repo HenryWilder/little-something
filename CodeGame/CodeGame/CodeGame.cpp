@@ -16,6 +16,9 @@ struct Vector2Int
 {
 	int16_t x, y;
 
+	Vector2Int() = default;
+	constexpr Vector2Int(int x, int y) : x((int16_t)x), y((int16_t)y) {}
+
 	bool operator==(const Vector2Int& other) const
 	{
 		return x == other.x && y == other.y;
@@ -46,6 +49,7 @@ enum class Word : byte
 
 	// Nouns
 	BABA = NOUN_BIT,
+	KEY,
 	WALL,
 	ROCK,
 	TEXT,
@@ -72,6 +76,7 @@ enum class Word : byte
 enum class Noun : byte
 {
 	BABA = (byte)Word::NOUN_BIT,
+	KEY,
 	WALL,
 	ROCK,
 	TEXT,
@@ -82,6 +87,7 @@ const char* ToString(Noun value)
 	constexpr const char* names[] =
 	{
 		"BABA",
+		"KEY",
 		"WALL",
 		"ROCK",
 		"TEXT",
@@ -160,19 +166,32 @@ Vector2Int input;
 
 class Object;
 using Objects_t = std::vector<Object*>;
+Objects_t world;
+
+using Grid_t = std::unordered_map<Vector2Int, Objects_t>;
+Grid_t grid;
+
+Objects_t* ObjectAtPosition(Vector2Int pos)
+{
+	auto it = grid.find(pos);
+	return (it != grid.end()) ? &it->second : nullptr;
+};
+
+using Types_t = std::unordered_map<Noun, Objects_t>;
+Types_t types;
+
 class Object
 {
 	Noun meta;
 	Word text; // Only available if meta == text
 	byte rotation : 2; // 90-degree clockwise increments
 	Vector2Int position;
+	Vector2Int velocity; // Delta position this Step
 
 	Object(Noun meta, Word text, int rotation, int x, int y) :
-		meta(meta), text(text), rotation(rotation & 3), position{ (short)x,(short)y } {}
+		meta(meta), text(text), rotation(rotation & 3), position{ (short)x,(short)y }, velocity{ 0,0 } {}
 
 public:
-	static Objects_t world; // In-play
-
 	static Object* CreateObject(Noun meta, int rotation, int x, int y)
 	{
 		world.push_back(new Object(meta, (Word)0, rotation, x, y));
@@ -220,10 +239,11 @@ public:
 			switch (text)
 			{
 			case Word::BABA:   color = RED; break;
-			case Word::WALL:   color = MAGENTA; break;
-			case Word::ROCK:   color = MAGENTA; break;
-			case Word::TEXT:   color = MAGENTA; break;
-			case Word::LOVE:   color = MAGENTA; break;
+			case Word::KEY:    color = GOLD; break;
+			case Word::WALL:   color = GRAY; break;
+			case Word::ROCK:   color = ORANGE; break;
+			case Word::TEXT:   color = VIOLET; break;
+			case Word::LOVE:   color = PINK; break;
 
 			case Word::IS:     color = WHITE; break;
 			case Word::AND:    color = WHITE; break;
@@ -231,12 +251,13 @@ public:
 
 			case Word::YOU:    color = RED; break;
 			case Word::WIN:    color = MAGENTA; break;
-			case Word::PUSH:   color = MAGENTA; break;
-			case Word::PULL:   color = MAGENTA; break;
-			case Word::STOP:   color = MAGENTA; break;
-			case Word::DEFEAT: color = MAGENTA; break;
-			case Word::TELE:   color = MAGENTA; break;
-			case Word::MELT:   color = MAGENTA; break;
+			case Word::PUSH:   color = ORANGE; break;
+			case Word::PULL:   color = ORANGE; break;
+			case Word::STOP:   color = DARKGREEN; break;
+			case Word::DEFEAT: color = RED; break;
+			case Word::TELE:   color = SKYBLUE; break;
+			case Word::MELT:   color = SKYBLUE; break;
+
 			default:           color = MAGENTA; break;
 			}
 		}
@@ -245,10 +266,10 @@ public:
 			switch (meta)
 			{
 			case Noun::BABA: color = WHITE; break;
-			case Noun::WALL: color = MAGENTA; break;
-			case Noun::ROCK: color = MAGENTA; break;
-			case Noun::TEXT: color = MAGENTA; break;
-			case Noun::LOVE: color = MAGENTA; break;
+			case Noun::WALL: color = GRAY; break;
+			case Noun::ROCK: color = ORANGE; break;
+			case Noun::LOVE: color = PINK; break;
+
 			default:         color = MAGENTA; break;
 			}
 		}
@@ -268,8 +289,8 @@ public:
 		switch (adj)
 		{
 		case Adjective::YOU:
-			position.x += input.x;
-			position.y += input.y;
+			velocity.x += input.x;
+			velocity.y += input.y;
 			break;
 		case Adjective::WIN:
 			break;
@@ -278,6 +299,32 @@ public:
 		case Adjective::PULL:
 			break;
 		case Adjective::STOP:
+		{
+			constexpr Vector2Int directions[] =
+			{
+				{  0, -1 },
+				{ +1,  0 },
+				{  0, +1 },
+				{ -1,  0 },
+			};
+			for (Vector2Int dir : directions)
+			{
+				Vector2Int space =
+				{
+					position.x + dir.x,
+					position.y + dir.y
+				};
+				Objects_t* objects = ObjectAtPosition(space);
+				if (!objects) continue;
+				for (Object* obj : *objects)
+				{
+					if (obj->velocity.x != 0 && obj->velocity.x / abs(obj->velocity.x) == -dir.x)
+						obj->velocity.x = 0;
+					if (obj->velocity.y != 0 && obj->velocity.y / abs(obj->velocity.y) == -dir.y)
+						obj->velocity.y = 0;
+				}
+			}
+		}
 			break;
 		case Adjective::DEFEAT:
 			break;
@@ -295,35 +342,34 @@ public:
 	{
 		// @Todo
 	}
-};
-Objects_t Object::world;
-
-// Stored level, not in-play level
-class Level
-{
-	Objects_t objects;
+	// Called before all rules are applied
+	void Reset()
+	{
+		velocity.x = 0;
+		velocity.y = 0;
+	}
+	// Called after all rules are applied
+	void Update()
+	{
+		position.x += velocity.x;
+		position.y += velocity.y;
+	}
 };
 
 void Step()
 {
 	// Map objects in world
-	std::unordered_map<Vector2Int, Objects_t> grid;
-	for (Object* obj : Object::world)
+	grid.clear();
+	for (Object* obj : world)
 	{
 		Vector2Int pos = obj->Position();
 		grid[pos].push_back(obj);
 	}
 
-	auto ObjectAtPosition = [&](short x, short y)
-	{
-		auto it = grid.find(Vector2Int{ x,y });
-		return (it != grid.end()) ? &it->second : nullptr;
-	};
-
 	// Create rules
 	ruleset.clear();
 	// Top-leftmost gets highest precedence 
-	for (Object* obj : Object::world)
+	for (Object* obj : world)
 	{
 		// Cannot evaluate starting from verbs nor adjectives
 		if (!obj->IsNoun())
@@ -333,10 +379,10 @@ void Step()
 
 		do
 		{
-			Objects_t* rightSpace1 = ObjectAtPosition(x + 1, y);
+			Objects_t* rightSpace1 = ObjectAtPosition({ x + 1, y });
 			if (!rightSpace1) break;
 
-			Objects_t* rightSpace2 = ObjectAtPosition(x + 2, y);
+			Objects_t* rightSpace2 = ObjectAtPosition({ x + 2, y });
 			if (!rightSpace2) break;
 
 			Object* right1 = nullptr;
@@ -376,11 +422,16 @@ void Step()
 	}
 
 	// Map objects by type
-	std::unordered_map<Noun, Objects_t> types;
-	for (Object* obj : Object::world)
+	types.clear();
+	for (Object* obj : world)
 	{
 		Noun type = obj->What();
 		types[type].push_back(obj);
+	}
+
+	for (Object* obj : world)
+	{
+		obj->Reset();
 	}
 
 	// Evaluate rules
@@ -412,6 +463,11 @@ void Step()
 			}
 		}
 	}
+
+	for (Object* obj : world)
+	{
+		obj->Update();
+	}
 }
 
 int main()
@@ -419,10 +475,16 @@ int main()
 	InitWindow(1280, 720, "Code Game");
 	SetTargetFPS(60);
 
-	Object::CreateObject(Noun::BABA, 0, 5,5);
 	Object::CreateText(Word::BABA, 0, 0,0);
-	Object::CreateText(Word::IS, 0, 1,0);
-	Object::CreateText(Word::YOU, 0, 2,0);
+	Object::CreateText(Word::IS,   0, 1,0);
+	Object::CreateText(Word::YOU,  0, 2,0);
+
+	Object::CreateText(Word::WALL, 0, 0,1);
+	Object::CreateText(Word::IS,   0, 1,1);
+	Object::CreateText(Word::STOP, 0, 2,1);
+
+	Object::CreateObject(Noun::BABA, 0, 5,5);
+	Object::CreateObject(Noun::WALL, 0, 9,5);
 
 	Step(); // Initialize
 
@@ -448,15 +510,17 @@ int main()
 
 		ClearBackground(BLACK);
 
-		for (Object* obj : Object::world)
+		for (Object* obj : world)
 		{
 			obj->Draw(Vector2Zero());
 		}
 
+		int y = 0;
 		for (const Rule& rule : ruleset)
 		{
 			std::string ruleName = rule.ToString();
-			DrawText(ruleName.c_str(), 0, 0, 20, MAGENTA);
+			DrawText(ruleName.c_str(), 0, y, 20, MAGENTA);
+			y += 20;
 		}
 
 		EndDrawing();
